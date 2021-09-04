@@ -27,6 +27,7 @@ func main() {
 		if err := saveFeedback(&feedback); err != nil {
 			return err
 		}
+		c.Status(204)
 		return nil
 	})
 
