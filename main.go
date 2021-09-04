@@ -15,7 +15,7 @@ func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	initDB()
 
-	app.Post("/", func(c *fiber.Ctx) error {
+	app.Post("/api/", func(c *fiber.Ctx) error {
 		c.Accepts("application/json")
 
 		var feedback Feedback
