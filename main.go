@@ -1,15 +1,27 @@
 package main
 
 import (
+	"net/http"
 	"os"
 	"github.com/gofiber/fiber/v2"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/driver/mysql"
   	"gorm.io/gorm"
 )
 
+var (
+    feedbacksGivenHistogram = promauto.NewCounter(prometheus.CounterOpts{
+        Name: "times_feedback_given",
+        Help: "the times feedback was given",
+    })
+)
+
 func main() {
+	go startMetrics()
 	app := fiber.New()
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
@@ -45,6 +57,8 @@ func saveFeedback(f *Feedback) error {
 	}
 	defer mysqlDB.Close()
 	db.Create(f)
+	feedbacksGivenHistogram.Inc()
+
 	log.Info().Msg("Added Feedback " + f.Feedback)
 	return nil
 }
@@ -74,6 +88,11 @@ func initDB() {
 	}
 	defer mysqlDB.Close()
 	db.AutoMigrate(&Feedback{})
+}
+
+func startMetrics() {
+	http.Handle("/metrics", promhttp.Handler())
+    http.ListenAndServe(":2112", nil)
 }
 
 type Feedback struct {

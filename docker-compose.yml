@@ -13,6 +13,7 @@ services:
     build: .
     ports:
       - "3000:3000"
+      - "2112:2112"
     environment:
       DB_HOST: db
       DB_PORT: "3306"
