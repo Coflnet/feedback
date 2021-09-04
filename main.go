@@ -77,8 +77,8 @@ func initDB() {
 }
 
 type Feedback struct {
-	Feedback 		string
-	User     		string
-	Context  		string
-	FeedbackName 	string
+	Feedback 		string `gorm:"type:text"`
+	User     		string `gorm:"type:text"`
+	Context  		string `gorm:"type:text"`
+	FeedbackName 		string `gorm:"type:text"`
 }
