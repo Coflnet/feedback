@@ -50,7 +50,6 @@ func saveFeedback(f *Feedback) error {
 
 func getDbConnection() *gorm.DB {
 	dsn := os.Getenv("DB_USER")+":"+os.Getenv("DB_PASSWORD")+"@tcp("+os.Getenv("DB_HOST")+":"+os.Getenv("DB_PORT")+")/"+os.Getenv("DB_NAME")+"?charset=utf8&parseTime=True&loc=Local"
-	log.Info().Msg("DB: " + dsn)
 	db, err := gorm.Open(mysql.New(mysql.Config{
   		DSN: dsn,
   		DefaultStringSize: 256,
