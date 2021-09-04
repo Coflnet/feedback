@@ -77,7 +77,8 @@ func initDB() {
 }
 
 type Feedback struct {
-	Feedback string
-	User     string
-	Context  string
+	Feedback 		string
+	User     		string
+	Context  		string
+	FeedbackName 	string
 }
