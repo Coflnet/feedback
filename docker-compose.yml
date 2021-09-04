@@ -1,0 +1,21 @@
+version: "3.9"
+services:
+  db:
+    image: mariadb:10.6-focal
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: feedback
+      MYSQL_USER: feedback
+      MYSQL_PASSWORD: feedback
+    
+  service:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USER: feedback
+      DB_PASSWORD: feedback
+      DB_NAME: feedback
