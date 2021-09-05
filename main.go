@@ -38,7 +38,6 @@ func main() {
 
 	app.Post("/api/", func(c *fiber.Ctx) error {
 		tracer := opentracing.GlobalTracer()
-		defer tracer.Close()
 
 		span := tracer.StartSpan("say-hello")
 		log.Info().Msg("start span")
