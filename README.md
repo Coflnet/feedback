@@ -1,4 +1,7 @@
 # feedback
+
+only endpoint POST /api/
+
 ## env vars
 
 ### DB_HOST
