@@ -9,6 +9,14 @@ services:
       MYSQL_USER: feedback
       MYSQL_PASSWORD: feedback
     
+  jaeger:
+    image: jaegertracing/all-in-one:latest 
+    environment: 
+    - "JAEGER_SERVICE_NAME=feedback-backend"
+    - "JAEGER_AGENT_HOST=jaeger"
+    ports:
+      - "16686:16686"
+
   service:
     build: .
     ports:

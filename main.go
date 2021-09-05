@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"os"
+	"time"
 	"github.com/gofiber/fiber/v2"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -11,6 +12,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/driver/mysql"
   	"gorm.io/gorm"
+	opentracing "github.com/opentracing/opentracing-go"
+    "github.com/uber/jaeger-lib/metrics"
+
+    "github.com/uber/jaeger-client-go"
+    jaegercfg "github.com/uber/jaeger-client-go/config"
+    jaegerlog "github.com/uber/jaeger-client-go/log"
 )
 
 var (
@@ -21,13 +28,19 @@ var (
 )
 
 func main() {
+	time.Sleep(time.Second * 30)
 	go startMetrics()
+	initTracing()
 	app := fiber.New()
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	initDB()
 
 	app.Post("/api/", func(c *fiber.Ctx) error {
+		tracer := opentracing.GlobalTracer()
+
+		span := tracer.StartSpan("say-hello")
+		log.Info().Msg("start span")
 		c.Accepts("application/json")
 
 		var feedback Feedback
@@ -40,6 +53,7 @@ func main() {
 			return err
 		}
 		c.Status(204)
+		span.Finish()
 		return nil
 	})
 
@@ -93,6 +107,39 @@ func initDB() {
 func startMetrics() {
 	http.Handle("/metrics", promhttp.Handler())
     http.ListenAndServe(":2112", nil)
+}
+
+func initTracing() {
+	cfg := jaegercfg.Configuration{
+        ServiceName: "your_service_name",
+        Sampler:     &jaegercfg.SamplerConfig{
+            Type:  jaeger.SamplerTypeConst,
+            Param: 1,
+        },
+        Reporter:    &jaegercfg.ReporterConfig{
+            LogSpans: true,
+        },
+    }
+
+    // Example logger and metrics factory. Use github.com/uber/jaeger-client-go/log
+    // and github.com/uber/jaeger-lib/metrics respectively to bind to real logging and metrics
+    // frameworks.
+    jLogger := jaegerlog.StdLogger
+    jMetricsFactory := metrics.NullFactory
+
+    // Initialize tracer with a logger and a metrics factory
+    tracer, closer, err := cfg.NewTracer(
+        jaegercfg.Logger(jLogger),
+        jaegercfg.Metrics(jMetricsFactory),
+    )
+
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed initialize jaeger")
+	}
+
+    // Set the singleton opentracing.Tracer with the Jaeger tracer.
+    opentracing.SetGlobalTracer(tracer)
+    defer closer.Close()
 }
 
 type Feedback struct {
