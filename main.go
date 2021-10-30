@@ -4,27 +4,29 @@ import (
 	"net/http"
 	"os"
 	"time"
+
 	"github.com/gofiber/fiber/v2"
+	opentracing "github.com/opentracing/opentracing-go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/prometheus/client_golang/prometheus"
-    "github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/uber/jaeger-lib/metrics"
 	"gorm.io/driver/mysql"
-  	"gorm.io/gorm"
-	opentracing "github.com/opentracing/opentracing-go"
-    "github.com/uber/jaeger-lib/metrics"
+	"gorm.io/gorm"
 
-    "github.com/uber/jaeger-client-go"
-    jaegercfg "github.com/uber/jaeger-client-go/config"
-    jaegerlog "github.com/uber/jaeger-client-go/log"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/uber/jaeger-client-go"
+	jaegercfg "github.com/uber/jaeger-client-go/config"
+	jaegerlog "github.com/uber/jaeger-client-go/log"
 )
 
 var (
-    feedbacksGivenHistogram = promauto.NewCounter(prometheus.CounterOpts{
-        Name: "times_feedback_given",
-        Help: "the times feedback was given",
-    })
+	feedbacksGivenHistogram = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "times_feedback_given",
+		Help: "the times feedback was given",
+	})
 )
 
 func main() {
@@ -35,6 +37,7 @@ func main() {
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	initDB()
+	app.Use(cors.New())
 
 	app.Post("/api/", func(c *fiber.Ctx) error {
 		tracer := opentracing.GlobalTracer()
@@ -78,14 +81,14 @@ func saveFeedback(f *Feedback) error {
 }
 
 func getDbConnection() *gorm.DB {
-	dsn := os.Getenv("DB_USER")+":"+os.Getenv("DB_PASSWORD")+"@tcp("+os.Getenv("DB_HOST")+":"+os.Getenv("DB_PORT")+")/"+os.Getenv("DB_NAME")+"?charset=utf8&parseTime=True&loc=Local"
+	dsn := os.Getenv("DB_USER") + ":" + os.Getenv("DB_PASSWORD") + "@tcp(" + os.Getenv("DB_HOST") + ":" + os.Getenv("DB_PORT") + ")/" + os.Getenv("DB_NAME") + "?charset=utf8&parseTime=True&loc=Local"
 	db, err := gorm.Open(mysql.New(mysql.Config{
-  		DSN: dsn,
-  		DefaultStringSize: 256,
-  		DisableDatetimePrecision: true,
-  		DontSupportRenameIndex: true,
-  		DontSupportRenameColumn: true,
-  		SkipInitializeWithVersion: false,
+		DSN:                       dsn,
+		DefaultStringSize:         256,
+		DisableDatetimePrecision:  true,
+		DontSupportRenameIndex:    true,
+		DontSupportRenameColumn:   true,
+		SkipInitializeWithVersion: false,
 	}), &gorm.Config{})
 	if err != nil {
 		log.Error().Err(err).Msg("Error connecting to database")
@@ -106,45 +109,45 @@ func initDB() {
 
 func startMetrics() {
 	http.Handle("/metrics", promhttp.Handler())
-    http.ListenAndServe(":2112", nil)
+	http.ListenAndServe(":2112", nil)
 }
 
 func initTracing() {
 	cfg := jaegercfg.Configuration{
-        ServiceName: "your_service_name",
-        Sampler:     &jaegercfg.SamplerConfig{
-            Type:  jaeger.SamplerTypeConst,
-            Param: 1,
-        },
-        Reporter:    &jaegercfg.ReporterConfig{
-            LogSpans: true,
-        },
-    }
+		ServiceName: "your_service_name",
+		Sampler: &jaegercfg.SamplerConfig{
+			Type:  jaeger.SamplerTypeConst,
+			Param: 1,
+		},
+		Reporter: &jaegercfg.ReporterConfig{
+			LogSpans: true,
+		},
+	}
 
-    // Example logger and metrics factory. Use github.com/uber/jaeger-client-go/log
-    // and github.com/uber/jaeger-lib/metrics respectively to bind to real logging and metrics
-    // frameworks.
-    jLogger := jaegerlog.StdLogger
-    jMetricsFactory := metrics.NullFactory
+	// Example logger and metrics factory. Use github.com/uber/jaeger-client-go/log
+	// and github.com/uber/jaeger-lib/metrics respectively to bind to real logging and metrics
+	// frameworks.
+	jLogger := jaegerlog.StdLogger
+	jMetricsFactory := metrics.NullFactory
 
-    // Initialize tracer with a logger and a metrics factory
-    tracer, closer, err := cfg.NewTracer(
-        jaegercfg.Logger(jLogger),
-        jaegercfg.Metrics(jMetricsFactory),
-    )
+	// Initialize tracer with a logger and a metrics factory
+	tracer, closer, err := cfg.NewTracer(
+		jaegercfg.Logger(jLogger),
+		jaegercfg.Metrics(jMetricsFactory),
+	)
 
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed initialize jaeger")
 	}
 
-    // Set the singleton opentracing.Tracer with the Jaeger tracer.
-    opentracing.SetGlobalTracer(tracer)
-    defer closer.Close()
+	// Set the singleton opentracing.Tracer with the Jaeger tracer.
+	opentracing.SetGlobalTracer(tracer)
+	defer closer.Close()
 }
 
 type Feedback struct {
-	Feedback 		string `gorm:"type:text"`
-	User     		string `gorm:"type:text"`
-	Context  		string `gorm:"type:text"`
-	FeedbackName 		string `gorm:"type:text"`
+	Feedback     string `gorm:"type:text"`
+	User         string `gorm:"type:text"`
+	Context      string `gorm:"type:text"`
+	FeedbackName string `gorm:"type:text"`
 }
