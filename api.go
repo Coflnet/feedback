@@ -25,6 +25,8 @@ func startApi(errorCh chan<- error) {
 			log.Error().Msg("there was an error when saving feedback in db")
 		}
 
+		incrementCounter()
+
 		c.Status(204)
 		return nil
 	})
