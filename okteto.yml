@@ -1,0 +1,17 @@
+name: feedback
+autocreate: true
+image: flou21/golang:dev
+command: zsh
+securityContext:
+  capabilities:
+    add:
+    - SYS_PTRACE
+volumes:
+- /go/pkg/
+- /root/.cache/go-build/
+sync:
+- .:/usr/src/app
+workdir: /usr/src/app
+forward:
+- 3000:3000
+- 2112:2112
