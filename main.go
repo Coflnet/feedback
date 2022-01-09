@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -29,4 +31,5 @@ type Feedback struct {
 	User         string             `bson:"user" json:"user"`
 	Context      string             `bson:"context" json:"context"`
 	FeedbackName string             `bson:"feedback_name" json:"fedbackName"`
+	Timestamp    time.Time          `bson:"timestamp" json:"timestamp"`
 }

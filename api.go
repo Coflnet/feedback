@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/rs/zerolog/log"
@@ -20,6 +22,8 @@ func startApi(errorCh chan<- error) {
 			log.Error().Err(err).Msg("could not parse request")
 			return err
 		}
+
+		feedback.Timestamp = time.Now()
 
 		if err := saveFeedback(feedback); err != nil {
 			log.Error().Msg("there was an error when saving feedback in db")
