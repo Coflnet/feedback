@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -8,7 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func startApi(errorCh chan<- error) {
+func startApi() error {
 	app := fiber.New()
 
 	app.Use(cors.New())
@@ -23,10 +24,17 @@ func startApi(errorCh chan<- error) {
 			return err
 		}
 
+		// parse data
+		var d interface{}
+		feedback.Data = json.Unmarshal([]byte(feedback.Feedback), &d)
+		feedback.Data = d
+
+		// set timestamp
 		feedback.Timestamp = time.Now()
 
 		if err := saveFeedback(feedback); err != nil {
 			log.Error().Msg("there was an error when saving feedback in db")
+			return err
 		}
 
 		incrementCounter()
@@ -35,7 +43,7 @@ func startApi(errorCh chan<- error) {
 		return nil
 	})
 
-	errorCh <- app.Listen(":3000")
+	return app.Listen(":3000")
 }
 
 func saveFeedback(f Feedback) error {
