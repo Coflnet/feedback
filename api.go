@@ -37,6 +37,12 @@ func startApi() error {
 			return err
 		}
 
+		// send message to kafka
+		if err := SendFeedbackToDiscord(feedback.Feedback); err != nil {
+			log.Error().Msg("there was an error when sending feedback to discord")
+			return err
+		}
+
 		incrementCounter()
 
 		c.Status(204)
