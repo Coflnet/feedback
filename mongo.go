@@ -58,7 +58,7 @@ func save(f Feedback) error {
 }
 
 func FeedbackToDataMigration() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	cursor, err := collection.Find(ctx, bson.D{})
@@ -73,6 +73,10 @@ func FeedbackToDataMigration() error {
 		if err != nil {
 			log.Error().Err(err).Msgf("could not decode feedback")
 			return err
+		}
+
+		if f.Data != nil {
+			continue
 		}
 
 		var d interface{}
