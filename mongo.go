@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"go.mongodb.org/mongo-driver/bson"
 	"os"
 	"time"
 
@@ -22,7 +24,8 @@ func connect() error {
 		return err
 	}
 
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	err = client.Connect(ctx)
 	if err != nil {
 		log.Error().Err(err).Msgf("error connecting to database")
@@ -35,12 +38,14 @@ func connect() error {
 }
 
 func disconnect() error {
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	return client.Disconnect(ctx)
 }
 
 func save(f Feedback) error {
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	res, err := collection.InsertOne(ctx, f)
 
 	if err != nil {
@@ -49,5 +54,48 @@ func save(f Feedback) error {
 	}
 
 	log.Info().Msgf("feedback with id %s was inserted", res.InsertedID)
+	return nil
+}
+
+func FeedbackToDataMigration() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cursor, err := collection.Find(ctx, bson.D{})
+	if err != nil {
+		log.Error().Err(err).Msgf("could not find feedbacks")
+		return err
+	}
+
+	for cursor.Next(ctx) {
+		var f Feedback
+		err := cursor.Decode(&f)
+		if err != nil {
+			log.Error().Err(err).Msgf("could not decode feedback")
+			return err
+		}
+
+		var d interface{}
+		err = json.Unmarshal([]byte(f.Feedback), &d)
+		if err != nil {
+			log.Error().Err(err).Msgf("could not unmarshal feedback")
+			continue
+		}
+
+		f.Data = d
+
+		_, err = collection.UpdateOne(ctx, bson.M{"_id": f.ID}, bson.M{"$set": bson.M{"data": f.Data}})
+		if err != nil {
+			log.Error().Err(err).Msgf("could not update feedback")
+			continue
+		}
+
+		_, err = collection.UpdateOne(ctx, bson.M{"_id": f.ID}, bson.M{"$unset": bson.M{"feedback": ""}})
+		if err != nil {
+			log.Error().Err(err).Msgf("could not update feedback")
+			continue
+		}
+	}
+
 	return nil
 }

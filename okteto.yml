@@ -1,7 +1,7 @@
-name: feedback
+name: tem-backend
 autocreate: true
-image: flou21/golang:dev
-command: zsh
+image: golang:1.18.3-bullseye
+command: bash
 securityContext:
   capabilities:
     add:
@@ -12,6 +12,8 @@ volumes:
 sync:
 - .:/usr/src/app
 workdir: /usr/src/app
+environment:
+- SLOWDOWN_MS=10
+- MONGO_HOST=mongodb://root:root@mongo.mongo:27017
 forward:
-- 3000:3000
-- 2112:2112
+- 8080:8080
