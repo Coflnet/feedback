@@ -58,8 +58,7 @@ func save(f Feedback) error {
 }
 
 func FeedbackToDataMigration() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	cursor, err := collection.Find(ctx, bson.D{})
 	if err != nil {
