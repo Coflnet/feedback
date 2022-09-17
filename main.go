@@ -23,13 +23,6 @@ func main() {
 		}
 	}()
 
-	log.Info().Msgf("feedback to data migration..")
-	err = FeedbackToDataMigration()
-	if err != nil {
-		log.Panic().Err(err).Msg("could not migrate feedback to data")
-	}
-	log.Info().Msgf("finished migrating feedback to data")
-
 	log.Info().Msgf("starting metrics..")
 	go startMetrics(errorCh)
 	log.Info().Msgf("starting api..")
