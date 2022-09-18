@@ -23,14 +23,6 @@ func main() {
 		}
 	}()
 
-	Init()
-	defer func() {
-		err := Disconnect()
-		if err != nil {
-			log.Error().Err(err).Msg("could not disconnect from kafka")
-		}
-	}()
-
 	log.Info().Msgf("starting metrics..")
 	go startMetrics(errorCh)
 	log.Info().Msgf("starting api..")

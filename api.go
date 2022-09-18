@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/Coflnet/coflnet-bot/pkg/discord"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/rs/zerolog/log"
@@ -33,13 +34,14 @@ func startApi() error {
 		feedback.Timestamp = time.Now()
 
 		if err := saveFeedback(feedback); err != nil {
-			log.Error().Msg("there was an error when saving feedback in db")
+			log.Error().Err(err).Msg("there was an error when saving feedback in db")
 			return err
 		}
 
 		// send message to kafka
-		if err := SendFeedbackToDiscord(feedback.Feedback); err != nil {
-			log.Error().Msg("there was an error when sending feedback to discord")
+		err := discord.SendMessageToFeedback(feedback.Feedback)
+		if err != nil {
+			log.Error().Err(err).Msg("could not send message to kafka")
 			return err
 		}
 
