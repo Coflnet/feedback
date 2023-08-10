@@ -1,1 +1,5 @@
 .git
+Dockerfile
+okteto.yml
+.stignore
+.gitignore

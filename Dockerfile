@@ -9,7 +9,8 @@ RUN go mod download
 COPY . .
 RUN go build .
 
-FROM gcr.io/distroless/static-debian11
+FROM alpine:3.18
 
-COPY --from=builder /app/feedback /feedback
-CMD ["/feedback"]
+COPY --from=builder /app/feedback /usr/local/bin/feedback
+
+ENTRYPOINT ["/usr/local/bin/feedback"]
