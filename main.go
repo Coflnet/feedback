@@ -1,34 +1,42 @@
 package main
 
 import (
+	"fmt"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"log/slog"
+	"net/http"
 	"time"
 
 	_ "github.com/joho/godotenv/autoload"
-	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func main() {
-
 	errorCh := make(chan error)
 
+	// connect to db
 	err := connect()
 	if err != nil {
-		log.Panic().Err(err).Msg("could not connect to db")
+		panic("could not connect to db")
 	}
 	defer func() {
-		err := disconnect()
+		err = disconnect()
 		if err != nil {
-			log.Error().Err(err).Msg("could not disconnect from db")
+			slog.Error("could not disconnect from db")
 		}
 	}()
 
-	log.Info().Msgf("starting metrics..")
+	slog.Info("starting metrics..")
 	go startMetrics(errorCh)
-	log.Info().Msgf("starting api..")
 
+	slog.Info("starting api..")
 	err = startApi()
-	log.Fatal().Err(err).Msgf("received critical error stopping application")
+	panic(fmt.Sprintf("received critical error stopping application, %v", err))
+}
+
+func startMetrics(errorCh chan<- error) {
+	http.Handle("/metrics", promhttp.Handler())
+	errorCh <- http.ListenAndServe(":2112", nil)
 }
 
 type Feedback struct {

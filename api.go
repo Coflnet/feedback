@@ -1,13 +1,22 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"log/slog"
 	"time"
 
-	"github.com/Coflnet/coflnet-bot/pkg/discord"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/rs/zerolog/log"
+)
+
+var (
+	feedbackCounter = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "times_feedback_given",
+		Help: "the times feedback was given",
+	})
 )
 
 func startApi() error {
@@ -15,13 +24,17 @@ func startApi() error {
 
 	app.Use(cors.New())
 
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.SendString("ok")
+	})
+
 	app.Post("/api", func(c *fiber.Ctx) error {
 
 		c.Accepts("application/json")
 
 		var feedback Feedback
 		if err := c.BodyParser(&feedback); err != nil {
-			log.Error().Err(err).Msg("could not parse request")
+			slog.Error("could not parse request")
 			return err
 		}
 
@@ -33,19 +46,20 @@ func startApi() error {
 		// set timestamp
 		feedback.Timestamp = time.Now()
 
-		if err := saveFeedback(feedback); err != nil {
-			log.Error().Err(err).Msg("there was an error when saving feedback in db")
+		if err := saveFeedback(c.Context(), feedback); err != nil {
+			slog.Error("there was an error when saving feedback in db", err)
 			return err
 		}
 
 		// send message to kafka
-		err := discord.SendMessageToFeedback(feedback.Feedback)
-		if err != nil {
-			log.Error().Err(err).Msg("could not send message to kafka")
-			return err
-		}
+		// err := discord.SendMessageToFeedback(feedback.Feedback)
+		// if err != nil {
+		// 	slog.Error("could not send message to kafka", err)
+		// 	return err
+		// }
+		slog.Warn("not sending message to kafka, currently disabled")
 
-		incrementCounter()
+		feedbackCounter.Inc()
 
 		c.Status(204)
 		return nil
@@ -54,10 +68,9 @@ func startApi() error {
 	return app.Listen(":3000")
 }
 
-func saveFeedback(f Feedback) error {
-	err := save(f)
+func saveFeedback(ctx context.Context, f Feedback) error {
+	err := save(ctx, f)
 	if err != nil {
-		log.Error().Err(err).Msgf("something went wrong when inserting feedback %s in db", f.Feedback)
 		return err
 	}
 
