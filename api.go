@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/Coflnet/coflnet-bot/pkg/discord"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"log/slog"
@@ -64,13 +65,15 @@ func startApi() error {
 			return err
 		}
 
-		// send message to kafka
-		// err := discord.SendMessageToFeedback(feedback.Feedback)
-		// if err != nil {
-		// 	slog.Error("could not send message to kafka", err)
-		// 	return err
-		// }
-		slog.Warn("not sending message to kafka, currently disabled")
+		go func() {
+			err = sendMessageToDiscordBot(feedback)
+			if err != nil {
+				slog.Error("could not send message to discord bot", "err", err)
+				errorsCounter.Inc()
+				return
+			}
+			slog.Info("successfully send feedback to the discord bot")
+		}()
 
 		feedbackCounter.Inc()
 
@@ -88,4 +91,44 @@ func saveFeedback(ctx context.Context, f Feedback) error {
 	}
 
 	return nil
+}
+
+func sendMessageToDiscordBot(feedback Feedback) error {
+	// try to extract additionalInformation if that does not work, just json stringify the data
+	content, err := extractMessageContent(feedback)
+	if err != nil {
+		return err
+	}
+
+	return discord.SendMessageToChannel(content, discord.FeedbackChannel)
+}
+
+func extractMessageContent(feedback Feedback) (string, error) {
+	content := ""
+
+	if feedback.Data != nil {
+		// try to extract additionalInformation
+		additionalInformation, ok := feedback.Data.(map[string]interface{})["additionalInformation"]
+		if ok {
+			// check if additionalInformation is a string
+			if _, ok := additionalInformation.(string); !ok {
+				slog.Debug("additionalInformation is not a string, can't use it")
+			}
+			content = additionalInformation.(string)
+			slog.Debug("found additionalInformation in feedback data")
+		} else {
+			slog.Debug("could not find additionalInformation in feedback data")
+		}
+	}
+
+	if content == "" {
+		b, err := json.Marshal(feedback.Data)
+		if err != nil {
+			return "", err
+		}
+
+		content = string(b)
+	}
+
+	return content, nil
 }
