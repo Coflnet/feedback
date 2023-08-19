@@ -68,6 +68,11 @@ func startApi() error {
 		go func() {
 			err = sendMessageToDiscordBot(feedback)
 			if err != nil {
+				if _, ok := err.(*AdditionalInformationIsEmptyError); ok {
+					slog.Warn("additionalInformation is empty, not sending message to discord bot")
+					return
+				}
+
 				slog.Error("could not send message to discord bot", "err", err)
 				errorsCounter.Inc()
 				return
@@ -94,7 +99,7 @@ func saveFeedback(ctx context.Context, f Feedback) error {
 }
 
 func sendMessageToDiscordBot(feedback Feedback) error {
-	// try to extract additionalInformation if that does not work, just json stringify the data
+	// try to extract additionalInformation
 	content, err := extractMessageContent(feedback)
 	if err != nil {
 		return err
@@ -112,23 +117,25 @@ func extractMessageContent(feedback Feedback) (string, error) {
 		if ok {
 			// check if additionalInformation is a string
 			if _, ok := additionalInformation.(string); !ok {
-				slog.Debug("additionalInformation is not a string, can't use it")
+				slog.Warn("additionalInformation is not a string, can't use it")
 			}
 			content = additionalInformation.(string)
-			slog.Debug("found additionalInformation in feedback data")
+			slog.Warn("found additionalInformation in feedback data")
 		} else {
-			slog.Debug("could not find additionalInformation in feedback data")
+			slog.Warn("could not find additionalInformation in feedback data")
 		}
 	}
 
+	// unable to extract additionalInformation, return an error
 	if content == "" {
-		b, err := json.Marshal(feedback.Data)
-		if err != nil {
-			return "", err
-		}
-
-		content = string(b)
+		return "", &AdditionalInformationIsEmptyError{}
 	}
 
 	return content, nil
+}
+
+type AdditionalInformationIsEmptyError struct{}
+
+func (e *AdditionalInformationIsEmptyError) Error() string {
+	return "additionalInformation is empty, that is classified as an error by now"
 }
