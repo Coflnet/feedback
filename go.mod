@@ -3,7 +3,7 @@ module github.com/Flou21/feedback
 go 1.21
 
 require (
-	github.com/Coflnet/coflnet-bot v0.0.0-20230819171431-ac7287903930
+	github.com/Coflnet/coflnet-bot v0.0.0-20230830174948-cc8fc46ce58f
 	github.com/gofiber/fiber/v2 v2.48.0
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.16.0

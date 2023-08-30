@@ -4,6 +4,8 @@ github.com/Coflnet/coflnet-bot v0.0.0-20230819165753-0569f83247f7 h1:Q/kvs76WhtF
 github.com/Coflnet/coflnet-bot v0.0.0-20230819165753-0569f83247f7/go.mod h1:XyMZFMDN34WyGPVFkjvqmwGXFsGpq2uSLj6oRfQpYoE=
 github.com/Coflnet/coflnet-bot v0.0.0-20230819171431-ac7287903930 h1:QfSv20trcl7OvJ/SjM/6qgfrNjBQ8lXDZz3vbCT5SNc=
 github.com/Coflnet/coflnet-bot v0.0.0-20230819171431-ac7287903930/go.mod h1:XyMZFMDN34WyGPVFkjvqmwGXFsGpq2uSLj6oRfQpYoE=
+github.com/Coflnet/coflnet-bot v0.0.0-20230830174948-cc8fc46ce58f h1:CHxF4j/Qc+REbYqWCDhG2oAQMmew+JtK/ONh+IDLPl8=
+github.com/Coflnet/coflnet-bot v0.0.0-20230830174948-cc8fc46ce58f/go.mod h1:8pJ8fPN/ZBwnWKk94B9UIm1311LPe/C6z+0F4rK/DFk=
 github.com/andybalholm/brotli v1.0.5 h1:8uQZIdzKmjc/iuPu7O2ioW48L81FgatrcpfFmiq/cCs=
 github.com/andybalholm/brotli v1.0.5/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
