@@ -34,7 +34,7 @@ func disconnect() error {
 	return client.Disconnect(ctx)
 }
 
-func save(ctx context.Context, f Feedback) error {
+func save(ctx context.Context, f *Feedback) error {
 	res, err := collection.InsertOne(ctx, f)
 
 	if err != nil {

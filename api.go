@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
+	"time"
+
 	"github.com/Coflnet/coflnet-bot/pkg/discord"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"log/slog"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -36,27 +37,12 @@ func startApi() error {
 
 	app.Post("/api", func(c *fiber.Ctx) error {
 
-		c.Accepts("application/json")
-
-		var feedback Feedback
-		if err := c.BodyParser(&feedback); err != nil {
-			slog.Error("could not parse request")
-			errorsCounter.Inc()
-
-			return err
-		}
-
-		// parse data
-		var d interface{}
-		err := json.Unmarshal([]byte(feedback.Feedback), &d)
+		feedback, err := parseFeedbackFromRequest(c)
 		if err != nil {
-			slog.Error("could not parse feedback", err)
+			slog.Error("there was an error when parsing feedback", err)
 			errorsCounter.Inc()
-
 			return err
 		}
-		feedback.Data = d
-		feedback.Timestamp = time.Now()
 
 		err = saveFeedback(c.Context(), feedback)
 		if err != nil {
@@ -66,18 +52,42 @@ func startApi() error {
 		}
 
 		go func() {
-			err = sendMessageToDiscordBot(feedback)
+			err := sendFeedbackToDiscordChannel(feedback, discord.FeedbackChannel)
 			if err != nil {
-				if _, ok := err.(*AdditionalInformationIsEmptyError); ok {
-					slog.Warn("additionalInformation is empty, not sending message to discord bot")
-					return
-				}
-
-				slog.Error("could not send message to discord bot", "err", err)
+				slog.Error("there was an error when sending feedback to discord channel", err)
 				errorsCounter.Inc()
-				return
 			}
-			slog.Info("successfully send feedback to the discord bot")
+			slog.Info("successfully send feedback to discord channel")
+		}()
+
+		feedbackCounter.Inc()
+
+		c.Status(204)
+		return nil
+	})
+
+	app.Post("/api/songvoter-feedback", func(c *fiber.Ctx) error {
+		feedback, err := parseFeedbackFromRequest(c)
+		if err != nil {
+			slog.Error("there was an error when parsing feedback", err)
+			errorsCounter.Inc()
+			return err
+		}
+
+		err = saveFeedback(c.Context(), feedback)
+		if err != nil {
+			slog.Error("there was an error when saving feedback in db", err)
+			errorsCounter.Inc()
+			return err
+		}
+
+		go func() {
+			err := sendFeedbackToDiscordChannel(feedback, discord.SongvoterFeedbackChannel)
+			if err != nil {
+				slog.Error("there was an error when sending feedback to discord channel", err)
+				errorsCounter.Inc()
+			}
+			slog.Info("successfully send feedback to discord channel")
 		}()
 
 		feedbackCounter.Inc()
@@ -89,7 +99,49 @@ func startApi() error {
 	return app.Listen(":3000")
 }
 
-func saveFeedback(ctx context.Context, f Feedback) error {
+func sendFeedbackToDiscordChannel(feedback *Feedback, channel discord.DiscordChannel) error {
+	err := sendMessageToDiscordBot(feedback, channel)
+	if err != nil {
+		if _, ok := err.(*AdditionalInformationIsEmptyError); ok {
+			slog.Warn("additionalInformation is empty, not sending message to discord bot")
+		}
+
+		slog.Error("could not send message to discord bot", "err", err)
+		errorsCounter.Inc()
+		return err
+	}
+	slog.Info("successfully send feedback to the discord bot")
+
+	return nil
+}
+
+func parseFeedbackFromRequest(c *fiber.Ctx) (*Feedback, error) {
+	c.Accepts("application/json")
+
+	var feedback Feedback
+	if err := c.BodyParser(&feedback); err != nil {
+		slog.Error("could not parse request")
+		errorsCounter.Inc()
+
+		return nil, err
+	}
+
+	// parse data
+	var d interface{}
+	err := json.Unmarshal([]byte(feedback.Feedback), &d)
+	if err != nil {
+		slog.Error("could not parse feedback", err)
+		errorsCounter.Inc()
+
+		return nil, err
+	}
+	feedback.Data = d
+	feedback.Timestamp = time.Now()
+
+	return &feedback, nil
+}
+
+func saveFeedback(ctx context.Context, f *Feedback) error {
 	err := save(ctx, f)
 	if err != nil {
 		return err
@@ -98,17 +150,17 @@ func saveFeedback(ctx context.Context, f Feedback) error {
 	return nil
 }
 
-func sendMessageToDiscordBot(feedback Feedback) error {
+func sendMessageToDiscordBot(feedback *Feedback, channel discord.DiscordChannel) error {
 	// try to extract additionalInformation
 	content, err := extractMessageContent(feedback)
 	if err != nil {
 		return err
 	}
 
-	return discord.SendMessageToChannel(content, discord.FeedbackChannel)
+	return discord.SendMessageToChannel(content, channel)
 }
 
-func extractMessageContent(feedback Feedback) (string, error) {
+func extractMessageContent(feedback *Feedback) (string, error) {
 	content := ""
 
 	if feedback.Data != nil {
@@ -116,7 +168,7 @@ func extractMessageContent(feedback Feedback) (string, error) {
 		additionalInformation, ok := feedback.Data.(map[string]interface{})["additionalInformation"]
 		if ok {
 			// check if additionalInformation is a string
-			if _, ok := additionalInformation.(string); !ok {
+			if _, ok = additionalInformation.(string); !ok {
 				slog.Warn("additionalInformation is not a string, can't use it")
 			}
 			content = additionalInformation.(string)
