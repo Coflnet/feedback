@@ -52,12 +52,15 @@ func startApi() error {
 		}
 
 		go func() {
-			err := sendFeedbackToDiscordChannel(feedback, discord.FeedbackChannel)
-			if err != nil {
-				slog.Error("there was an error when sending feedback to discord channel", err)
-				errorsCounter.Inc()
-			}
-			slog.Info("successfully send feedback to discord channel")
+			slog.Warn("skip sending feedback to discord for now")
+
+			// TODO reactivate
+			// err := sendFeedbackToDiscordChannel(feedback, discord.FeedbackChannel)
+			// 	if err != nil {
+			// 		slog.Error("there was an error when sending feedback to discord channel", err)
+			// 		errorsCounter.Inc()
+			// 	}
+			// 	slog.Info("successfully send feedback to discord channel")
 		}()
 
 		feedbackCounter.Inc()
