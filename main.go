@@ -1,20 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log/slog"
 	"net/http"
-	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	_ "github.com/joho/godotenv/autoload"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func main() {
 	errorCh := make(chan error)
 
-	// connect to db
+	// connect to the legacy mongo db
 	err := connect()
 	if err != nil {
 		panic("could not connect to db")
@@ -26,11 +26,28 @@ func main() {
 		}
 	}()
 
+	// connect to the new cockroach database
+	db := NewDatabaseHandler()
+	err = db.Connect()
+	if err != nil {
+		slog.Error("could not connect to the database", err)
+		panic(err)
+	}
+
 	slog.Info("starting metrics..")
 	go startMetrics(errorCh)
 
+	err = migrateFeedback(db)
+	if err != nil {
+		slog.Error("could not migrate feedback", err)
+		panic(err)
+	}
+
+	// start the api
+	apiHandler := NewApiHandler(db)
+
 	slog.Info("starting api..")
-	err = startApi()
+	err = apiHandler.startApi()
 	panic(fmt.Sprintf("received critical error stopping application, %v", err))
 }
 
@@ -39,12 +56,29 @@ func startMetrics(errorCh chan<- error) {
 	errorCh <- http.ListenAndServe(":2112", nil)
 }
 
-type Feedback struct {
-	ID           primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	Feedback     string             `bson:"feedback" json:"feedback"`
-	Data         interface{}        `bson:"data" json:"data"`
-	User         string             `bson:"user" json:"user"`
-	Context      string             `bson:"context" json:"context"`
-	FeedbackName string             `bson:"feedback_name" json:"fedbackName"`
-	Timestamp    time.Time          `bson:"timestamp" json:"timestamp"`
+func migrateFeedback(d *DatabaseHandler) error {
+	ctx := context.Background()
+
+	feedbacks, err := loadAll(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, f := range feedbacks {
+		feedback := &Feedback{
+			Feedback:     f.Feedback,
+			Data:         f.Data,
+			User:         f.User,
+			Context:      f.Context,
+			FeedbackName: f.FeedbackName,
+			Timestamp:    f.Timestamp,
+		}
+
+		err = d.SaveFeedback(feedback)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

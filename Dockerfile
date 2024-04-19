@@ -1,4 +1,4 @@
-FROM registry.suse.com/bci/golang:1.21 as builder
+FROM registry.suse.com/bci/golang:1.22
 
 WORKDIR /app
 # ENV GO111MODULE=on
@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build
 
 
 # final stage
-FROM registry.suse.com/bci/bci-micro:latest
+FROM registry.suse.com/bci/bci-micro:15.5
 COPY --from=builder /app/feedback /app/
 
 EXPOSE 3000

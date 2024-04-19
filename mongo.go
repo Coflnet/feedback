@@ -34,13 +34,16 @@ func disconnect() error {
 	return client.Disconnect(ctx)
 }
 
-func save(ctx context.Context, f *Feedback) error {
-	res, err := collection.InsertOne(ctx, f)
-
+func loadAll(ctx context.Context) ([]*MongoFeedback, error) {
+	cursor, err := collection.Find(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	slog.Info("feedback with id %s was inserted", res.InsertedID)
-	return nil
+	var feedbacks []*MongoFeedback
+	if err = cursor.All(ctx, &feedbacks); err != nil {
+		return nil, err
+	}
+
+	return feedbacks, nil
 }
