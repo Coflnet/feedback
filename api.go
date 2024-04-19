@@ -130,7 +130,7 @@ func sendFeedbackToDiscordChannel(feedback *Feedback, channel discord.DiscordCha
 func parseFeedbackFromRequest(c *fiber.Ctx) (*Feedback, error) {
 	c.Accepts("application/json")
 
-	var feedback Feedback
+	var feedback MongoFeedback
 	if err := c.BodyParser(&feedback); err != nil {
 		slog.Error("could not parse request")
 		errorsCounter.Inc()
@@ -150,29 +150,6 @@ func parseFeedbackFromRequest(c *fiber.Ctx) (*Feedback, error) {
 	feedback.Data = d
 	feedback.Timestamp = time.Now()
 
-	return &feedback, nil
-}
-
-func (h *ApiHandler) saveFeedback(f *Feedback) error {
-	err := h.databaseHandler.SaveFeedback(f)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func sendMessageToDiscordBot(feedback *Feedback, channel discord.DiscordChannel) error {
-	// try to extract additionalInformation
-	content, err := extractMessageContent(feedback)
-	if err != nil {
-		return err
-	}
-
-	return discord.SendMessageToChannel(content, channel)
-}
-
-func extractMessageContent(feedback *Feedback) (string, error) {
 	content := ""
 
 	if feedback.Data != nil {
@@ -190,12 +167,32 @@ func extractMessageContent(feedback *Feedback) (string, error) {
 		}
 	}
 
-	// unable to extract additionalInformation, return an error
 	if content == "" {
-		return "", &AdditionalInformationIsEmptyError{}
+		return nil, &AdditionalInformationIsEmptyError{}
 	}
 
-	return content, nil
+	return &Feedback{
+		Feedback:               feedback.Feedback,
+		AdditionalInformations: content,
+		User:                   feedback.User,
+		Context:                feedback.Context,
+		FeedbackName:           feedback.FeedbackName,
+		Timestamp:              feedback.Timestamp,
+	}, nil
+}
+
+func (h *ApiHandler) saveFeedback(f *Feedback) error {
+	err := h.databaseHandler.SaveFeedback(f)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func sendMessageToDiscordBot(feedback *Feedback, channel discord.DiscordChannel) error {
+	content := feedback.AdditionalInformations
+	return discord.SendMessageToChannel(content, channel)
 }
 
 type AdditionalInformationIsEmptyError struct{}

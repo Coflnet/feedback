@@ -79,7 +79,6 @@ func migrateFeedback(d *DatabaseHandler) error {
 		slog.Info(fmt.Sprintf("found feedback from %s at %s", f.User, f.Timestamp))
 		feedback := &Feedback{
 			Feedback:     f.Feedback,
-			Data:         f.Data,
 			User:         f.User,
 			Context:      f.Context,
 			FeedbackName: f.FeedbackName,
