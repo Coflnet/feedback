@@ -57,14 +57,24 @@ func startMetrics(errorCh chan<- error) {
 }
 
 func migrateFeedback(d *DatabaseHandler) error {
+	slog.Info("starting feedback migration..")
 	ctx := context.Background()
 
+	slog.Info("loading feedbacks..")
 	feedbacks, err := loadAll(ctx)
 	if err != nil {
 		return err
 	}
 
+	slog.Info(fmt.Sprintf("loaded %d feedbacks", len(feedbacks)))
+
 	for _, f := range feedbacks {
+		if f == nil {
+			slog.Warn("nil feedback")
+			continue
+		}
+
+		slog.Info(fmt.Sprintf("found feedback from %s at %s", f.User, f.Timestamp))
 		feedback := &Feedback{
 			Feedback:     f.Feedback,
 			Data:         f.Data,
@@ -78,6 +88,7 @@ func migrateFeedback(d *DatabaseHandler) error {
 		if err != nil {
 			return err
 		}
+		slog.Info("saved feedback")
 	}
 
 	return nil
