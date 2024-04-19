@@ -63,6 +63,7 @@ func migrateFeedback(d *DatabaseHandler) error {
 	slog.Info("loading feedbacks..")
 	feedbacks, err := loadAll(ctx)
 	if err != nil {
+		slog.Error("could not load feedbacks", "err", err)
 		return err
 	}
 
