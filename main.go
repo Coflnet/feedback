@@ -39,7 +39,7 @@ func main() {
 
 	err = migrateFeedback(db)
 	if err != nil {
-		slog.Error("could not migrate feedback", err)
+		slog.Error("could not migrate feedback", "err", err)
 		panic(err)
 	}
 
