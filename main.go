@@ -37,11 +37,12 @@ func main() {
 	slog.Info("starting metrics..")
 	go startMetrics(errorCh)
 
-	err = migrateFeedback(db)
-	if err != nil {
-		slog.Error("could not migrate feedback", "err", err)
-		panic(err)
-	}
+	// err = migrateFeedback(db)
+	// if err != nil {
+	// 	slog.Error("could not migrate feedback", "err", err)
+	// 	panic(err)
+	// }
+	slog.Info("skip migration for now")
 
 	// start the api
 	apiHandler := NewApiHandler(db)

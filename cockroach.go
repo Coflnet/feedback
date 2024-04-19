@@ -49,6 +49,16 @@ func (d *DatabaseHandler) Connect() error {
 	}
 
 	d.db = db
+
+	return d.migrations()
+}
+
+func (d *DatabaseHandler) migrations() error {
+	err := d.db.AutoMigrate(&Feedback{})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -58,7 +68,7 @@ func (d *DatabaseHandler) SaveFeedback(f *Feedback) error {
 		return res.Error
 	}
 
-	slog.Debug(fmt.Sprintf("Inserted feedback with id %s", f.ID))
+	slog.Debug(fmt.Sprintf("Inserted feedback with id %d", f.ID))
 	return nil
 }
 
