@@ -23,12 +23,11 @@ type MongoFeedback struct {
 
 type Feedback struct {
 	gorm.Model
-	Feedback     string      `json:"feedback"`
-	Data         interface{} `json:"data"`
-	User         string      `json:"user"`
-	Context      string      `json:"context"`
-	FeedbackName string      `json:"fedbackName"`
-	Timestamp    time.Time   `json:"timestamp"`
+	Feedback     string    `json:"feedback"`
+	User         string    `json:"user"`
+	Context      string    `json:"context"`
+	FeedbackName string    `json:"fedbackName"`
+	Timestamp    time.Time `json:"timestamp"`
 }
 
 type DatabaseHandler struct {
