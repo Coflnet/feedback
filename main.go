@@ -30,7 +30,7 @@ func main() {
 	db := NewDatabaseHandler()
 	err = db.Connect()
 	if err != nil {
-		slog.Error("could not connect to the database", err)
+		slog.Error("could not connect to the database", "err", err)
 		panic(err)
 	}
 

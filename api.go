@@ -66,17 +66,7 @@ func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 		return err
 	}
 
-	go func() {
-		err := sendFeedbackToDiscordChannel(feedback, discord.FeedbackChannel)
-		if err != nil {
-			slog.Error("there was an error when sending feedback to discord channel", err)
-			errorsCounter.Inc()
-		}
-		slog.Info("successfully send feedback to discord channel")
-	}()
-
 	feedbackCounter.Inc()
-
 	c.Status(204)
 	return nil
 }
@@ -96,34 +86,9 @@ func (h *ApiHandler) feedbackSongvoterPostRequest(c *fiber.Ctx) error {
 		return err
 	}
 
-	go func() {
-		err := sendFeedbackToDiscordChannel(feedback, discord.SongvoterFeedbackChannel)
-		if err != nil {
-			slog.Error("there was an error when sending feedback to discord channel", err)
-			errorsCounter.Inc()
-		}
-		slog.Info("successfully send feedback to discord channel")
-	}()
-
 	feedbackCounter.Inc()
 
 	c.Status(204)
-	return nil
-}
-
-func sendFeedbackToDiscordChannel(feedback *Feedback, channel discord.DiscordChannel) error {
-	err := sendMessageToDiscordBot(feedback, channel)
-	if err != nil {
-		if _, ok := err.(*AdditionalInformationIsEmptyError); ok {
-			slog.Warn("additionalInformation is empty, not sending message to discord bot")
-		}
-
-		slog.Error("could not send message to discord bot", "err", err)
-		errorsCounter.Inc()
-		return err
-	}
-	slog.Info("successfully send feedback to the discord bot")
-
 	return nil
 }
 

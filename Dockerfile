@@ -1,20 +1,20 @@
-FROM registry.suse.com/bci/golang:1.22 as builder
+FROM cgr.dev/chainguard/go:latest-dev as builder
 
+# Set the working directory
 WORKDIR /app
 
-COPY go.mod .
-COPY go.sum .
+# Copy the Go module files
+COPY go.mod go.sum ./
 
+# Authenticate with GitHub to access the private repo
+ARG token
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build
+RUN go build -o main .
 
+FROM cgr.dev/chainguard/static:latest
 
-# final stage
-FROM registry.suse.com/bci/bci-micro:15.5
-COPY --from=builder /app/feedback /app/
+COPY --from=builder /app/main /bin/feedback
 
-EXPOSE 3000
-ENTRYPOINT ["/app/feedback"]
-
+CMD ["/bin/feedback"]
