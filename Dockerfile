@@ -1,20 +1,21 @@
 FROM cgr.dev/chainguard/go:latest-dev as builder
 
+ENV GO111MODULE=on \
+    CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=amd64
+
 # Set the working directory
 WORKDIR /app
 
-# Copy the Go module files
-COPY go.mod go.sum ./
-
-# Authenticate with GitHub to access the private repo
-ARG token
+COPY ./go.mod ./go.sum .
 RUN go mod download
 
 COPY . .
-RUN go build -o main .
+RUN go build -o feedback .
 
-FROM cgr.dev/chainguard/static:latest
+FROM cgr.dev/chainguard/static
 
-COPY --from=builder /app/main /bin/feedback
+COPY --from=builder /app/feedback /usr/bin/feedback
 
-CMD ["/bin/feedback"]
+ENTRYPOINT ["/usr/bin/feedback"]
