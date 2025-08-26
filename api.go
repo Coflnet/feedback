@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"net/http"
+	"os"
 	"time"
 
-	"github.com/Coflnet/coflnet-bot/pkg/discord"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
@@ -65,7 +68,7 @@ func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 		return err
 	}
 
-	err = sendMessageToDiscordBot(feedback, discord.FeedbackChannel)
+	err = sendMessageToDiscordBot(feedback)
 	if err != nil {
 		slog.Error("sending message to discord failed", "err", err)
 		return err
@@ -160,9 +163,41 @@ func (h *ApiHandler) saveFeedback(f *Feedback) error {
 	return nil
 }
 
-func sendMessageToDiscordBot(feedback *Feedback, channel discord.DiscordChannel) error {
-	content := feedback.AdditionalInformations
-	return discord.SendMessageToChannel(content, channel)
+func sendMessageToDiscordBot(feedback *Feedback) error {
+	webhookUrl := os.Getenv("WEBHOOK_URL")
+
+	if webhookUrl == "YOUR_WEBHOOK_URL_HERE" {
+		return fmt.Errorf("please replace 'YOUR_WEBHOOK_URL_HERE' with your actual Discord webhook URL")
+	}
+
+	payload := map[string]string{
+		"content": feedback.Feedback,
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("error creating JSON payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", webhookUrl, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return fmt.Errorf("error creating HTTP request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("error sending HTTP request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("received non-204 status code: %s", resp.Status)
+	}
+
+	return nil
 }
 
 type AdditionalInformationIsEmptyError struct{}
