@@ -51,7 +51,6 @@ func (h *ApiHandler) healthRequest(c *fiber.Ctx) error {
 }
 
 func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
-
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
 		slog.Error("there was an error when parsing feedback", err)
@@ -63,6 +62,12 @@ func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 	if err != nil {
 		slog.Error("there was an error when saving feedback in db", err)
 		errorsCounter.Inc()
+		return err
+	}
+
+	err = sendMessageToDiscordBot(feedback, discord.FeedbackChannel)
+	if err != nil {
+		slog.Error("sending message to discord failed", "err", err)
 		return err
 	}
 
