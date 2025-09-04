@@ -170,8 +170,75 @@ func sendMessageToDiscordBot(feedback *Feedback) error {
 		return fmt.Errorf("please replace 'YOUR_WEBHOOK_URL_HERE' with your actual Discord webhook URL")
 	}
 
+	// try to parse the raw feedback JSON into a map
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(feedback.Feedback), &parsed); err != nil {
+		slog.Error("could not parse feedback JSON", "err", err)
+		return err
+	}
+
+	// helper to read boolean safely
+	getBool := func(k string) bool {
+		if v, ok := parsed[k]; ok {
+			if b, ok := v.(bool); ok {
+				return b
+			}
+		}
+		return false
+	}
+
+	// extract fields
+	loadNew := getBool("loadNewInformation")
+
+	var additional string
+	if v, ok := parsed["additionalInformation"]; ok && v != nil {
+		if s, ok := v.(string); ok {
+			additional = s
+		} else {
+			// fallback: marshal non-string additionalInformation to string
+			if b, err := json.Marshal(v); err == nil {
+				additional = string(b)
+			}
+		}
+	}
+
+	// ignore feedback when loadNewInformation is false and additionalInformation is empty or too short
+	if !loadNew && len(additional) < 10 {
+		slog.Warn("ignoring feedback: loadNewInformation is false and additionalInformation is too short")
+		return nil
+	}
+
+	// format properties nicely into a message
+	var buf bytes.Buffer
+	buf.WriteString("New feedback received\n\n")
+	buf.WriteString(fmt.Sprintf("• loadNewInformation: %v\n", loadNew))
+	buf.WriteString(fmt.Sprintf("• otherIssue: %v\n", getBool("otherIssue")))
+	buf.WriteString(fmt.Sprintf("• somethingBroke: %v\n\n", getBool("somethingBroke")))
+
+	buf.WriteString("additionalInformation:\n")
+	if additional == "" {
+		buf.WriteString("_(empty)_\n\n")
+	} else {
+		buf.WriteString(additional + "\n\n")
+	}
+
+	// pretty-print errorLog if present
+	if el, ok := parsed["errorLog"]; ok {
+		if b, err := json.MarshalIndent(el, "", "  "); err == nil {
+			buf.WriteString("errorLog:\n")
+			buf.Write(b)
+			buf.WriteString("\n\n")
+		}
+	}
+
+	// include href if present
+	if href, ok := parsed["href"].(string); ok && href != "" {
+		buf.WriteString(fmt.Sprintf("href: %s\n", href))
+	}
+
+	// use the formatted text as the Discord message content
 	payload := map[string]string{
-		"content": feedback.Feedback,
+		"content": buf.String(),
 	}
 
 	jsonPayload, err := json.Marshal(payload)
