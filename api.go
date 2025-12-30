@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -168,6 +170,14 @@ func sendMessageToDiscordBot(feedback *Feedback) error {
 
 	if webhookUrl == "YOUR_WEBHOOK_URL_HERE" {
 		return fmt.Errorf("please replace 'YOUR_WEBHOOK_URL_HERE' with your actual Discord webhook URL")
+	}
+
+	// If additional information is provided but it's too short, don't send the message.
+	// This prevents sending trivial additional info (shorter than 5 characters).
+	trimmed := strings.TrimSpace(feedback.AdditionalInformations)
+	if trimmed != "" && utf8.RuneCountInString(trimmed) < 5 {
+		slog.Warn("additionalInformation is too short; not sending message to Discord")
+		return nil
 	}
 
 	// try to parse the raw feedback JSON into a map
