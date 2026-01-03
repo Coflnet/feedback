@@ -48,6 +48,38 @@ func (h *ApiHandler) startApi() error {
 	app.Post("/api", h.feedbackPostRequest)
 	app.Post("/api/songvoter-feedback", h.feedbackSongvoterPostRequest)
 
+	// Serve OpenAPI spec and a minimal Swagger UI
+	app.Get("/openapi.yaml", func(c *fiber.Ctx) error {
+		return c.SendFile("openapi.yaml")
+	})
+
+	app.Get("/api", func(c *fiber.Ctx) error {
+		html := `<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Feedback API Docs</title>
+		<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@4.18.3/swagger-ui.css" />
+	</head>
+	<body>
+		<div id="swagger-ui"></div>
+		<script src="https://unpkg.com/swagger-ui-dist@4.18.3/swagger-ui-bundle.js"></script>
+		<script>
+			window.onload = function() {
+				const ui = SwaggerUIBundle({
+					url: '/openapi.yaml',
+					dom_id: '#swagger-ui',
+				})
+			}
+		</script>
+	</body>
+</html>`
+
+		c.Type("html")
+		return c.SendString(html)
+	})
+
 	return app.Listen(":3000")
 }
 

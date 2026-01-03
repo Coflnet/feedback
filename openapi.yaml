@@ -1,0 +1,81 @@
+openapi: 3.0.3
+info:
+  title: Feedback API
+  version: 1.0.0
+  description: |
+    API for collecting client feedback. The `feedback` field is a raw JSON-encoded string
+    that contains fields like `additionalInformation`, `loadNewInformation`, `otherIssue`,
+    `somethingBroke`, `errorLog` and `href`.
+servers:
+  - url: http://localhost:3000
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  /api:
+    post:
+      summary: Submit feedback
+      description: Accepts a feedback envelope. On success returns HTTP 204 No Content.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MongoFeedback'
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+
+  /api/songvoter-feedback:
+    post:
+      summary: Submit songvoter feedback
+      description: Similar to `/api` but does not forward to Discord.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MongoFeedback'
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+
+components:
+  schemas:
+    MongoFeedback:
+      type: object
+      properties:
+        feedback:
+          type: string
+          description: >
+            Raw JSON encoded as a string containing the actual feedback payload.
+            Typical keys inside this JSON string include `additionalInformation`,
+            `loadNewInformation`, `errorLog`, etc.
+          example: '{"additionalInformation":"Found a bug","loadNewInformation":true}'
+        user:
+          type: string
+          example: 'example-user'
+        context:
+          type: string
+          example: 'webapp'
+        feedbackName:
+          type: string
+          example: 'ui-bug'
+        timestamp:
+          type: string
+          format: date-time
+      required:
+        - feedback
