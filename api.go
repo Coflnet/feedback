@@ -11,6 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"path/filepath"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
@@ -30,6 +32,11 @@ var (
 	})
 )
 
+// openapi.yaml will be located and read at startup from either the
+// executable directory or the current working directory. This avoids
+// requiring go:embed and works when the file is deployed alongside
+// the binary.
+
 type ApiHandler struct {
 	databaseHandler *DatabaseHandler
 }
@@ -44,13 +51,36 @@ func (h *ApiHandler) startApi() error {
 	app := fiber.New()
 	app.Use(cors.New())
 
+	// Try to locate openapi.yaml next to the executable, otherwise fall back
+	// to looking in the current working directory. If not found, we'll log
+	// a warning and the /openapi.yaml handler will return 404.
+	var openapiSpec []byte
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		if b, err := os.ReadFile(filepath.Join(exeDir, "openapi.yaml")); err == nil {
+			openapiSpec = b
+		}
+	}
+	if openapiSpec == nil {
+		if b, err := os.ReadFile("openapi.yaml"); err == nil {
+			openapiSpec = b
+		}
+	}
+	if openapiSpec == nil {
+		slog.Warn("openapi.yaml not found next to executable or in working dir; /openapi.yaml will return 404")
+	}
+
 	app.Get("/health", h.healthRequest)
 	app.Post("/api", h.feedbackPostRequest)
 	app.Post("/api/songvoter-feedback", h.feedbackSongvoterPostRequest)
 
-	// Serve OpenAPI spec and a minimal Swagger UI
+	// Serve OpenAPI spec (embedded) and a minimal Swagger UI
 	app.Get("/openapi.yaml", func(c *fiber.Ctx) error {
-		return c.SendFile("openapi.yaml")
+		if openapiSpec == nil {
+			return c.Status(404).SendString("openapi.yaml not found on server")
+		}
+		c.Set("Content-Type", "application/yaml")
+		return c.Send(openapiSpec)
 	})
 
 	app.Get("/api", func(c *fiber.Ctx) error {
