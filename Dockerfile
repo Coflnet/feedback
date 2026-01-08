@@ -16,8 +16,9 @@ RUN go build -o feedback .
 
 FROM cgr.dev/chainguard/static
 
-COPY --from=builder /app/feedback /usr/bin/feedback
+WORKDIR /app
+COPY --from=builder /app/feedback /app/feedback
 # Copy OpenAPI spec next to the binary so the running executable can find it
-COPY --from=builder /app/openapi.yaml /usr/bin/openapi.yaml
+COPY --from=builder /app/openapi.yaml /app/openapi.yaml
 
-ENTRYPOINT ["/usr/bin/feedback"]
+ENTRYPOINT ["/app/feedback"]
