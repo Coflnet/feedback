@@ -50,7 +50,9 @@ func NewApiHandler(databaseHandler *DatabaseHandler) *ApiHandler {
 func (h *ApiHandler) startApi() error {
 	app := fiber.New()
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "https://pro.skyblock.bz,https://songvoter.coflnet.com,https://sky.coflnet.com",
+		AllowOriginsFunc: func(origin string) bool {
+			return true
+		},
 		AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
 		AllowHeaders:     "Content-Type",
 		AllowCredentials: false,
