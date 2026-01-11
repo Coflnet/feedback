@@ -311,30 +311,78 @@ func sendMessageToDiscordBot(feedback *Feedback) error {
 	// format properties nicely into a message
 	var buf bytes.Buffer
 	buf.WriteString("New feedback received\n\n")
-	buf.WriteString(fmt.Sprintf("• loadNewInformation: %v\n", loadNew))
-	buf.WriteString(fmt.Sprintf("• otherIssue: %v\n", getBool("otherIssue")))
-	buf.WriteString(fmt.Sprintf("• somethingBroke: %v\n\n", getBool("somethingBroke")))
 
-	buf.WriteString("additionalInformation:\n")
-	if additional == "" {
-		buf.WriteString("_(empty)_\n\n")
-	} else {
-		buf.WriteString(additional + "\n\n")
-	}
-
-	// pretty-print errorLog if present
-	if el, ok := parsed["errorLog"]; ok {
-		if b, err := json.MarshalIndent(el, "", "  "); err == nil {
-			buf.WriteString("errorLog:\n")
-			buf.Write(b)
-			buf.WriteString("\n\n")
+	// helper to check if a value is empty/false
+	isEmpty := func(v interface{}) bool {
+		switch val := v.(type) {
+		case bool:
+			return !val
+		case string:
+			return val == ""
+		case nil:
+			return true
+		default:
+			return false
 		}
 	}
 
-	// include href if present
-	if href, ok := parsed["href"].(string); ok && href != "" {
-		buf.WriteString(fmt.Sprintf("href: %s\n", href))
+	// iterate through all fields in parsed feedback and include non-empty ones
+	for key, value := range parsed {
+		if isEmpty(value) {
+			continue
+		}
+
+		switch key {
+		case "additionalInformation":
+			if s, ok := value.(string); ok && s != "" {
+				buf.WriteString(fmt.Sprintf("**additionalInformation:**\n%s\n\n", s))
+			}
+		case "errorLog":
+			// pretty-print errorLog
+			if b, err := json.MarshalIndent(value, "", "  "); err == nil {
+				buf.WriteString(fmt.Sprintf("**errorLog:**\n```\n%s\n```\n\n", string(b)))
+			}
+		case "href":
+			if s, ok := value.(string); ok && s != "" {
+				buf.WriteString(fmt.Sprintf("**href:** %s\n\n", s))
+			}
+		case "reason":
+			if s, ok := value.(string); ok && s != "" {
+				buf.WriteString(fmt.Sprintf("**reason:** %s\n", s))
+			}
+		case "rating":
+			if num, ok := value.(float64); ok {
+				buf.WriteString(fmt.Sprintf("**rating:** %.0f\n", num))
+			}
+		case "subscriptionStatus":
+			if s, ok := value.(string); ok && s != "" {
+				buf.WriteString(fmt.Sprintf("**subscriptionStatus:** %s\n", s))
+			}
+		case "timestamp":
+			if s, ok := value.(string); ok && s != "" {
+				buf.WriteString(fmt.Sprintf("**timestamp:** %s\n", s))
+			}
+		default:
+			// include any other non-empty fields
+			switch val := value.(type) {
+			case string:
+				if val != "" {
+					buf.WriteString(fmt.Sprintf("**%s:** %s\n", key, val))
+				}
+			case bool:
+				if val {
+					buf.WriteString(fmt.Sprintf("**%s:** true\n", key))
+				}
+			case float64:
+				buf.WriteString(fmt.Sprintf("**%s:** %.0f\n", key, val))
+			default:
+				if b, err := json.Marshal(value); err == nil && string(b) != "null" {
+					buf.WriteString(fmt.Sprintf("**%s:** %s\n", key, string(b)))
+				}
+			}
+		}
 	}
+	buf.WriteString("\n")
 
 	// use the formatted text as the Discord message content
 	payload := map[string]string{
