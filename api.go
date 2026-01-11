@@ -49,7 +49,11 @@ func NewApiHandler(databaseHandler *DatabaseHandler) *ApiHandler {
 
 func (h *ApiHandler) startApi() error {
 	app := fiber.New()
-	app.Use(cors.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "https://pro.skyblock.bz,https://songvoter.coflnet.com,https://sky.coflnet.com",
+		AllowMethods: "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
+		AllowHeaders: "Content-Type",
+	}))
 
 	// Try to locate openapi.yaml next to the executable, otherwise fall back
 	// to looking in the current working directory. If not found, we'll log
@@ -73,6 +77,7 @@ func (h *ApiHandler) startApi() error {
 	app.Get("/health", h.healthRequest)
 	app.Post("/api", h.feedbackPostRequest)
 	app.Post("/api/songvoter-feedback", h.feedbackSongvoterPostRequest)
+	app.Post("/api/pro-skyblock-feedback", h.feedbackProSkyblocPostRequest)
 
 	// Serve OpenAPI spec (embedded) and a minimal Swagger UI
 	app.Get("/openapi.yaml", func(c *fiber.Ctx) error {
@@ -144,6 +149,27 @@ func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 }
 
 func (h *ApiHandler) feedbackSongvoterPostRequest(c *fiber.Ctx) error {
+	feedback, err := parseFeedbackFromRequest(c)
+	if err != nil {
+		slog.Error("there was an error when parsing feedback", err)
+		errorsCounter.Inc()
+		return err
+	}
+
+	err = h.saveFeedback(feedback)
+	if err != nil {
+		slog.Error("there was an error when saving feedback in db", err)
+		errorsCounter.Inc()
+		return err
+	}
+
+	feedbackCounter.Inc()
+
+	c.Status(204)
+	return nil
+}
+
+func (h *ApiHandler) feedbackProSkyblocPostRequest(c *fiber.Ctx) error {
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
 		slog.Error("there was an error when parsing feedback", err)
