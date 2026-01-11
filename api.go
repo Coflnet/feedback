@@ -54,7 +54,7 @@ func (h *ApiHandler) startApi() error {
 		AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
 		AllowHeaders:     "*",
 		AllowCredentials: false,
-		MaxAge:           3600,
+		MaxAge:           600,
 	}))
 
 	// Try to locate openapi.yaml next to the executable, otherwise fall back
