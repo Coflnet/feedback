@@ -50,12 +50,11 @@ func NewApiHandler(databaseHandler *DatabaseHandler) *ApiHandler {
 func (h *ApiHandler) startApi() error {
 	app := fiber.New()
 	app.Use(cors.New(cors.Config{
-		AllowOriginsFunc: func(origin string) bool {
-			return true
-		},
+		AllowOrigins:     "*",
 		AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
-		AllowHeaders:     "Content-Type",
+		AllowHeaders:     "*",
 		AllowCredentials: false,
+		MaxAge:           3600,
 	}))
 
 	// Try to locate openapi.yaml next to the executable, otherwise fall back
