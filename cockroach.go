@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -35,6 +36,10 @@ type DatabaseHandler struct {
 	db *gorm.DB
 }
 
+// ErrDuplicateFeedback is returned when the last stored feedback matches the
+// incoming one and should not be saved or forwarded again.
+var ErrDuplicateFeedback = errors.New("duplicate feedback")
+
 func NewDatabaseHandler() *DatabaseHandler {
 	d := &DatabaseHandler{}
 	return d
@@ -63,7 +68,19 @@ func (d *DatabaseHandler) migrations() error {
 }
 
 func (d *DatabaseHandler) SaveFeedback(f *Feedback) error {
-	res := d.db.Create(f)
+	// Try to load the most recent feedback and compare. If identical, skip.
+	var last Feedback
+	res := d.db.Order("created_at desc").First(&last)
+	if res.Error == nil {
+		if last.Feedback == f.Feedback && last.AdditionalInformations == f.AdditionalInformations {
+			slog.Debug("detected duplicate feedback; skipping save")
+			return ErrDuplicateFeedback
+		}
+	} else if !errors.Is(res.Error, gorm.ErrRecordNotFound) {
+		return res.Error
+	}
+
+	res = d.db.Create(f)
 	if res.Error != nil {
 		return res.Error
 	}

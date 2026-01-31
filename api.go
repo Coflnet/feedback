@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -134,6 +135,12 @@ func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 
 	err = h.saveFeedback(feedback)
 	if err != nil {
+		if errors.Is(err, ErrDuplicateFeedback) {
+			slog.Warn("duplicate feedback received; skipping webhook and storage")
+			c.Status(204)
+			return nil
+		}
+
 		slog.Error("there was an error when saving feedback in db", err)
 		errorsCounter.Inc()
 		return err
@@ -160,6 +167,12 @@ func (h *ApiHandler) feedbackSongvoterPostRequest(c *fiber.Ctx) error {
 
 	err = h.saveFeedback(feedback)
 	if err != nil {
+		if errors.Is(err, ErrDuplicateFeedback) {
+			slog.Warn("duplicate feedback received; skipping storage")
+			c.Status(204)
+			return nil
+		}
+
 		slog.Error("there was an error when saving feedback in db", err)
 		errorsCounter.Inc()
 		return err
@@ -181,6 +194,12 @@ func (h *ApiHandler) feedbackProSkyblocPostRequest(c *fiber.Ctx) error {
 
 	err = h.saveFeedback(feedback)
 	if err != nil {
+		if errors.Is(err, ErrDuplicateFeedback) {
+			slog.Warn("duplicate feedback received; skipping storage")
+			c.Status(204)
+			return nil
+		}
+
 		slog.Error("there was an error when saving feedback in db", err)
 		errorsCounter.Inc()
 		return err
