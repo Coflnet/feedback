@@ -53,6 +53,67 @@ paths:
         '400':
           description: Bad Request
 
+  /api/contact-form/challenge:
+    get:
+      summary: Get a proof-of-work challenge for the contact form
+      description: >
+        The landing page contact form must first fetch a signed proof-of-work
+        challenge, solve it in the browser and submit the solution together with
+        the message. This is the first anti-spam layer.
+      responses:
+        '200':
+          description: A signed challenge
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  challenge:
+                    type: string
+                    description: Random hex string to hash.
+                  ts:
+                    type: integer
+                    format: int64
+                    description: Unix timestamp the challenge was issued.
+                  sig:
+                    type: string
+                    description: HMAC binding challenge, ts and difficulty.
+                  difficulty:
+                    type: integer
+                    description: Required number of leading hex zeros in sha256(challenge+nonce).
+
+  /api/contact-form:
+    post:
+      summary: Submit the landing page contact form
+      description: >
+        Multipart/urlencoded form submission protected by multiple anti-spam
+        layers: a honeypot field, the proof-of-work challenge, a minimum
+        fill-time check, single-use challenge replay protection and a content
+        blacklist. Rejected submissions are silently dropped with HTTP 200 so
+        bots cannot probe which layer caught them.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                message: { type: string }
+                website: { type: string, description: "Honeypot; must be empty." }
+                challenge: { type: string }
+                ts: { type: string }
+                sig: { type: string }
+                nonce: { type: string, description: "Solved proof-of-work nonce." }
+              required: [name, email, message, challenge, ts, sig, nonce]
+      responses:
+        '200':
+          description: >
+            Accepted or silently dropped as spam (both return 200 by design).
+        '500':
+          description: Delivery to the Discord webhook failed.
+
 components:
   schemas:
     FeedbackRequest:

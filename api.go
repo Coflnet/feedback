@@ -51,7 +51,7 @@ func NewApiHandler(databaseHandler *DatabaseHandler) *ApiHandler {
 func (h *ApiHandler) startApi() error {
 	app := fiber.New()
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "https://pro.skyblock.bz,https://songvoter.coflnet.com,https://sky.coflnet.com",
+		AllowOrigins:     "https://pro.skyblock.bz,https://songvoter.coflnet.com,https://sky.coflnet.com,https://coflnet.com,https://www.coflnet.com",
 		AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
 		AllowHeaders:     "*",
 		AllowCredentials: false,
@@ -81,6 +81,11 @@ func (h *ApiHandler) startApi() error {
 	app.Post("/api", h.feedbackPostRequest)
 	app.Post("/api/songvoter-feedback", h.feedbackSongvoterPostRequest)
 	app.Post("/api/pro-skyblock-feedback", h.feedbackProSkyblocPostRequest)
+
+	// Contact form (landing page) with multi-layered anti-spam.
+	contact := NewContactHandler()
+	app.Get("/api/contact-form/challenge", contact.getChallenge)
+	app.Post("/api/contact-form", contact.postContact)
 
 	// Serve OpenAPI spec (embedded) and a minimal Swagger UI
 	app.Get("/openapi.yaml", func(c *fiber.Ctx) error {
