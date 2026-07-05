@@ -214,7 +214,7 @@ func (h *ApiHandler) feedbackProSkyblocPostRequest(c *fiber.Ctx) error {
 func parseFeedbackFromRequest(c *fiber.Ctx) (*Feedback, error) {
 	c.Accepts("application/json")
 
-	var feedback MongoFeedback
+	var feedback FeedbackRequest
 	if err := c.BodyParser(&feedback); err != nil {
 		slog.Error("could not parse request")
 		errorsCounter.Inc()

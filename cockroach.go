@@ -7,19 +7,17 @@ import (
 	"os"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-type MongoFeedback struct {
-	ID           primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	Feedback     string             `bson:"feedback" json:"feedback"`
-	Data         interface{}        `bson:"data" json:"data"`
-	User         string             `bson:"user" json:"user"`
-	Context      string             `bson:"context" json:"context"`
-	FeedbackName string             `bson:"feedback_name" json:"fedbackName"`
-	Timestamp    time.Time          `bson:"timestamp" json:"timestamp"`
+type FeedbackRequest struct {
+	Feedback     string      `json:"feedback"`
+	Data         interface{} `json:"data"`
+	User         string      `json:"user"`
+	Context      string      `json:"context"`
+	FeedbackName string      `json:"fedbackName"`
+	Timestamp    time.Time   `json:"timestamp"`
 }
 
 type Feedback struct {
