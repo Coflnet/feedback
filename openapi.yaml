@@ -81,6 +81,11 @@ paths:
                   difficulty:
                     type: integer
                     description: Required number of leading hex zeros in sha256(challenge+nonce).
+                  minFill:
+                    type: integer
+                    description: >
+                      Seconds the client must wait between fetching the challenge
+                      and submitting. Submitting sooner is rejected as "too fast".
 
   /api/contact-form:
     post:
@@ -89,8 +94,13 @@ paths:
         Multipart/urlencoded form submission protected by multiple anti-spam
         layers: a honeypot field, the proof-of-work challenge, a minimum
         fill-time check, single-use challenge replay protection and a content
-        blacklist. Rejected submissions are silently dropped with HTTP 200 so
-        bots cannot probe which layer caught them.
+        blacklist.
+
+        The honeypot and content blacklist (layers a human never trips) are
+        dropped silently with HTTP 200 so bots cannot tell they were caught.
+        Protocol failures (missing/forged/expired challenge, bad proof-of-work,
+        replay, malformed fields) return HTTP 400 so a real client can retry
+        instead of showing a false success.
       requestBody:
         required: true
         content:
@@ -110,7 +120,12 @@ paths:
       responses:
         '200':
           description: >
-            Accepted or silently dropped as spam (both return 200 by design).
+            Accepted, or silently dropped by the honeypot/blacklist (both
+            return 200 by design).
+        '400':
+          description: >
+            Protocol failure: invalid, expired, replayed or unsolved challenge,
+            or malformed fields. Client may retry with a fresh challenge.
         '500':
           description: Delivery to the Discord webhook failed.
 

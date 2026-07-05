@@ -30,8 +30,13 @@ to Discord. It is protected by several anti-spam layers:
    telegra.ph, …), crypto/gambling/SEO/job-scam phrases, link heuristics and
    foreign-language "what's your price" pings are rejected.
 
-Rejected submissions return `200` silently so bots can't tell which layer
-caught them.
+The honeypot and content blacklist (layers a human never trips) drop the
+message silently with `200` so bots can't tell they were caught. Protocol
+failures (invalid/expired/replayed challenge, bad proof-of-work, malformed
+fields) return `400` so a real client retries instead of showing a false
+success. The browser fetches and solves the challenge as soon as the user
+starts filling the form and waits out the min-fill window locally, so a
+legitimate submit is never rejected for timing.
 
 ### CONTACT_WEBHOOK_URL
 Discord webhook for contact form messages (falls back to `WEBHOOK_URL`).

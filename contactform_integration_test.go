@@ -136,8 +136,8 @@ func TestContactHoneypot(t *testing.T) {
 func TestContactMissingChallengeRejected(t *testing.T) {
 	app, _ := newContactApp(t)
 	form := url.Values{"name": {"Jane"}, "email": {"jane@example.com"}, "message": {"hello there friend"}}
-	if code := postForm(t, app, form); code != 200 {
-		t.Fatalf("expected silent 200, got %d", code)
+	if code := postForm(t, app, form); code != 400 {
+		t.Fatalf("expected 400 protocol error, got %d", code)
 	}
 }
 
@@ -154,8 +154,8 @@ func TestContactReplayRejected(t *testing.T) {
 		t.Fatalf("first submit expected 200, got %d", code)
 	}
 	// resubmitting the exact same solved challenge must be treated as replay
-	if code := postForm(t, app, form); code != 200 {
-		t.Fatalf("replay expected silent 200, got %d", code)
+	if code := postForm(t, app, form); code != 400 {
+		t.Fatalf("replay expected 400, got %d", code)
 	}
 }
 
@@ -168,16 +168,16 @@ func TestContactTooFastRejected(t *testing.T) {
 		"challenge": {ch.Challenge}, "ts": {strconv.FormatInt(ch.Timestamp, 10)},
 		"sig": {h.sign(ch.Challenge, ch.Timestamp, ch.Difficulty)}, "nonce": {solve(ch.Challenge, ch.Difficulty)},
 	}
-	if code := postForm(t, app, form); code != 200 {
-		t.Fatalf("expected silent 200, got %d", code)
+	if code := postForm(t, app, form); code != 400 {
+		t.Fatalf("expected 400 protocol error, got %d", code)
 	}
 }
 
 func TestContactBadPoWRejected(t *testing.T) {
 	app, _ := newContactApp(t)
 	form := validSolvedForm(t, app, "Jane", "jane@example.com", "hello there friend")
-	form.Set("nonce", "0") // almost certainly not a valid solution
-	if code := postForm(t, app, form); code != 200 {
-		t.Fatalf("expected silent 200, got %d", code)
+	form.Set("nonce", "1") // not a valid solution for difficulty 3
+	if code := postForm(t, app, form); code != 400 {
+		t.Fatalf("expected 400 protocol error, got %d", code)
 	}
 }

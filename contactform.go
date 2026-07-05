@@ -108,6 +108,7 @@ type challengeResponse struct {
 	Timestamp  int64  `json:"ts"`
 	Signature  string `json:"sig"`
 	Difficulty int    `json:"difficulty"`
+	MinFill    int    `json:"minFill"` // seconds the client must wait before submitting
 }
 
 // sign returns the HMAC that binds a challenge string to the timestamp and
@@ -132,6 +133,7 @@ func (h *ContactHandler) getChallenge(c *fiber.Ctx) error {
 		Timestamp:  ts,
 		Signature:  h.sign(challenge, ts, h.difficulty),
 		Difficulty: h.difficulty,
+		MinFill:    contactMinFillSeconds,
 	})
 }
 
@@ -144,19 +146,30 @@ func verifyPoW(challenge, nonce string, difficulty int) bool {
 	return strings.HasPrefix(h, prefix)
 }
 
-func (h *ContactHandler) reject(c *fiber.Ctx, layer, reason string) error {
+// dropSilent handles the layers a legitimate human never trips (honeypot,
+// content blacklist). It returns 200 so bots can't tell they were caught and
+// don't retry with tweaks; the message is silently discarded.
+func (h *ContactHandler) dropSilent(c *fiber.Ctx, layer, reason string) error {
+	contactSpamCounter.WithLabelValues(layer).Inc()
+	slog.Warn("contact form silently dropped", "layer", layer, "reason", reason, "ip", c.IP())
+	return c.SendStatus(http.StatusOK)
+}
+
+// rejectBad handles protocol failures (missing/forged/expired challenge, bad
+// proof-of-work, replay, malformed fields). A correct browser client should
+// never hit these, so we return 400 — that lets a real client surface an error
+// and retry instead of showing a false "message sent".
+func (h *ContactHandler) rejectBad(c *fiber.Ctx, layer, reason string) error {
 	contactSpamCounter.WithLabelValues(layer).Inc()
 	slog.Warn("contact form rejected", "layer", layer, "reason", reason, "ip", c.IP())
-	// Return a generic 200 so bots can't tell which layer caught them and
-	// don't retry with tweaks. The message is silently dropped.
-	return c.SendStatus(http.StatusOK)
+	return c.Status(http.StatusBadRequest).SendString("request rejected")
 }
 
 func (h *ContactHandler) postContact(c *fiber.Ctx) error {
 	// Layer 1: honeypot. The form ships a hidden field named "website" that a
 	// human never sees or fills. Any value means an automated submitter.
 	if strings.TrimSpace(c.FormValue("website")) != "" {
-		return h.reject(c, "honeypot", "honeypot field filled")
+		return h.dropSilent(c, "honeypot", "honeypot field filled")
 	}
 
 	// Layer 2: proof-of-work challenge. Validate the signed challenge, its age
@@ -168,32 +181,32 @@ func (h *ContactHandler) postContact(c *fiber.Ctx) error {
 	difficulty := h.difficulty
 
 	if challenge == "" || sig == "" || nonce == "" || tsStr == "" {
-		return h.reject(c, "challenge", "missing challenge fields")
+		return h.rejectBad(c, "challenge", "missing challenge fields")
 	}
 	ts, err := strconv.ParseInt(tsStr, 10, 64)
 	if err != nil {
-		return h.reject(c, "challenge", "unparseable timestamp")
+		return h.rejectBad(c, "challenge", "unparseable timestamp")
 	}
 	expected := h.sign(challenge, ts, difficulty)
 	if subtle.ConstantTimeCompare([]byte(expected), []byte(sig)) != 1 {
-		return h.reject(c, "challenge", "bad signature")
+		return h.rejectBad(c, "challenge", "bad signature")
 	}
 	age := time.Now().Unix() - ts
 	if age < contactMinFillSeconds {
-		return h.reject(c, "timing", "submitted too fast")
+		return h.rejectBad(c, "timing", "submitted too fast")
 	}
 	if age > int64(contactChallengeTTL.Seconds()) {
-		return h.reject(c, "challenge", "challenge expired")
+		return h.rejectBad(c, "challenge", "challenge expired")
 	}
 	if !verifyPoW(challenge, nonce, difficulty) {
-		return h.reject(c, "pow", "invalid proof of work")
+		return h.rejectBad(c, "pow", "invalid proof of work")
 	}
 
 	// Replay guard: a solved challenge may be used exactly once.
 	h.mu.Lock()
 	if _, seen := h.used[challenge]; seen {
 		h.mu.Unlock()
-		return h.reject(c, "replay", "challenge reused")
+		return h.rejectBad(c, "replay", "challenge reused")
 	}
 	h.used[challenge] = time.Now().Add(contactChallengeTTL)
 	h.mu.Unlock()
@@ -204,15 +217,16 @@ func (h *ContactHandler) postContact(c *fiber.Ctx) error {
 	message := strings.TrimSpace(c.FormValue("message"))
 
 	if name == "" || email == "" || message == "" {
-		return h.reject(c, "validation", "empty required field")
+		return h.rejectBad(c, "validation", "empty required field")
 	}
 	if !looksLikeEmail(email) {
-		return h.reject(c, "validation", "invalid email")
+		return h.rejectBad(c, "validation", "invalid email")
 	}
 
-	// Layer 3: content blacklists / spam scoring.
+	// Layer 3: content blacklists / spam scoring. A human won't trip this, so
+	// like the honeypot it is dropped silently rather than surfaced.
 	if score, why := spamScore(name, email, message); score >= spamRejectThreshold {
-		return h.reject(c, "blacklist", fmt.Sprintf("spam score %d: %s", score, why))
+		return h.dropSilent(c, "blacklist", fmt.Sprintf("spam score %d: %s", score, why))
 	}
 
 	if err := sendContactToDiscord(name, email, message); err != nil {
