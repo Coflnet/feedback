@@ -4,18 +4,43 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
+
+// memoryContactMailStore is a fake ContactEmailOutboxStore that records
+// queued submissions in memory instead of CockroachDB.
+type memoryContactMailStore struct {
+	queued   []ContactEmailOutbox
+	queueErr error
+}
+
+func (s *memoryContactMailStore) QueueContactEmail(name, email, message string) error {
+	if s.queueErr != nil {
+		return s.queueErr
+	}
+	s.queued = append(s.queued, ContactEmailOutbox{Name: name, Email: email, Message: message})
+	return nil
+}
+
+func (*memoryContactMailStore) ClaimContactEmailOutbox(time.Time, time.Duration, int) ([]ContactEmailOutbox, error) {
+	return nil, nil
+}
+
+func (*memoryContactMailStore) CompleteContactEmail(uint64) error { return nil }
+
+func (*memoryContactMailStore) RetryContactEmail(uint64, time.Time) error { return nil }
+
+var errContactQueueUnavailable = errors.New("database unavailable")
 
 func solve(challenge string, difficulty int) string {
 	prefix := strings.Repeat("0", difficulty)
@@ -30,7 +55,13 @@ func solve(challenge string, difficulty int) string {
 
 func newContactApp(t *testing.T) (*fiber.App, *ContactHandler) {
 	t.Helper()
-	h := &ContactHandler{secret: []byte("integration-secret"), difficulty: 3, used: map[string]time.Time{}}
+	h := &ContactHandler{
+		secret:                []byte("integration-secret"),
+		difficulty:            3,
+		used:                  map[string]time.Time{},
+		contactMailStore:      &memoryContactMailStore{},
+		contactMailConfigured: true,
+	}
 	app := fiber.New()
 	app.Get("/api/contact-form/challenge", h.getChallenge)
 	app.Post("/api/contact-form", h.postContact)
@@ -78,49 +109,75 @@ func validSolvedForm(t *testing.T, app *fiber.App, name, email, message string) 
 	}
 }
 
-func TestContactHappyPath(t *testing.T) {
-	var hits int32
-	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&hits, 1)
-		body, _ := io.ReadAll(r.Body)
-		var p map[string]interface{}
-		json.Unmarshal(body, &p)
-		if got := p["content"]; got != "Jane Doe jane@example.com: Hi, I would love to work with you on the filter project." {
-			t.Errorf("unexpected webhook content: %v", got)
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer webhook.Close()
-	t.Setenv("CONTACT_WEBHOOK_URL", webhook.URL)
-
-	app, _ := newContactApp(t)
+// TestContactHappyPathQueuesExactlyOneEmailNoDiscord is the regression test
+// for the Discord -> SMTP migration: a valid submission must durably queue
+// exactly one contact-form email carrying the submitted fields, and the
+// contact route must have no Discord dependency left to call (the handler
+// exposes no Discord field or webhook client at all any more).
+func TestContactHappyPathQueuesExactlyOneEmailNoDiscord(t *testing.T) {
+	app, handler := newContactApp(t)
 	form := validSolvedForm(t, app, "Jane Doe", "jane@example.com", "Hi, I would love to work with you on the filter project.")
 	if code := postForm(t, app, form); code != 200 {
 		t.Fatalf("expected 200, got %d", code)
 	}
-	if atomic.LoadInt32(&hits) != 1 {
-		t.Fatalf("expected webhook to be hit once, got %d", hits)
+	store := handler.contactMailStore.(*memoryContactMailStore)
+	if len(store.queued) != 1 {
+		t.Fatalf("expected exactly one queued email, got %d", len(store.queued))
+	}
+	job := store.queued[0]
+	if job.Name != "Jane Doe" || job.Email != "jane@example.com" ||
+		job.Message != "Hi, I would love to work with you on the filter project." {
+		t.Fatalf("queued email does not match the submission: %+v", job)
 	}
 }
 
-func TestContactSpamNeverReachesWebhook(t *testing.T) {
-	var hits int32
-	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&hits, 1)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer webhook.Close()
-	t.Setenv("CONTACT_WEBHOOK_URL", webhook.URL)
+func TestContactNameIsOptional(t *testing.T) {
+	app, handler := newContactApp(t)
+	form := validSolvedForm(t, app, "", "jane@example.com", "A project question without a name.")
+	if code := postForm(t, app, form); code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", code)
+	}
+	store := handler.contactMailStore.(*memoryContactMailStore)
+	if len(store.queued) != 1 || store.queued[0].Name != "" {
+		t.Fatalf("expected one queued email with no name, got %+v", store.queued)
+	}
+}
 
-	app, _ := newContactApp(t)
+func TestContactSpamNeverQueuesEmail(t *testing.T) {
+	app, handler := newContactApp(t)
 	form := validSolvedForm(t, app, "IsaacHoono", "myhrtsdrm60@gmail.com",
 		"IMPORTANT MESSAGE! WITHDRAW 1.3426 BTC https://qrlinkgenerator.com/kLrUG")
 	// even with a perfectly solved challenge, content blacklist drops it
 	if code := postForm(t, app, form); code != 200 {
 		t.Fatalf("expected silent 200, got %d", code)
 	}
-	if atomic.LoadInt32(&hits) != 0 {
-		t.Fatalf("spam must not reach webhook, hits=%d", hits)
+	store := handler.contactMailStore.(*memoryContactMailStore)
+	if len(store.queued) != 0 {
+		t.Fatalf("spam must not be queued for delivery, queued=%d", len(store.queued))
+	}
+}
+
+func TestContactFailsClosedWhenMailNotConfigured(t *testing.T) {
+	app, handler := newContactApp(t)
+	handler.contactMailConfigured = false
+
+	form := validSolvedForm(t, app, "Jane Doe", "jane@example.com", "Legitimate project inquiry.")
+	if code := postForm(t, app, form); code != 500 {
+		t.Fatalf("expected 500 while email delivery is unconfigured, got %d", code)
+	}
+	store := handler.contactMailStore.(*memoryContactMailStore)
+	if len(store.queued) != 0 {
+		t.Fatal("unconfigured email delivery must not queue contact data")
+	}
+}
+
+func TestContactFailsClosedWhenQueueingFails(t *testing.T) {
+	app, handler := newContactApp(t)
+	handler.contactMailStore = &memoryContactMailStore{queueErr: errContactQueueUnavailable}
+
+	form := validSolvedForm(t, app, "Jane Doe", "jane@example.com", "Legitimate project inquiry.")
+	if code := postForm(t, app, form); code != 500 {
+		t.Fatalf("expected fail-closed 500 when the outbox write fails, got %d", code)
 	}
 }
 
@@ -142,12 +199,6 @@ func TestContactMissingChallengeRejected(t *testing.T) {
 }
 
 func TestContactReplayRejected(t *testing.T) {
-	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer webhook.Close()
-	t.Setenv("CONTACT_WEBHOOK_URL", webhook.URL)
-
 	app, _ := newContactApp(t)
 	form := validSolvedForm(t, app, "Jane Doe", "jane@example.com", "Legit message about a project idea.")
 	if code := postForm(t, app, form); code != 200 {

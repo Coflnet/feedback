@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Feedback API
-  version: 1.0.0
+  version: 1.2.0
   description: |
     API for collecting client feedback. The `feedback` field is a raw JSON-encoded string
     that contains fields like `additionalInformation`, `loadNewInformation`, `otherIssue`,
@@ -101,6 +101,11 @@ paths:
         Protocol failures (missing/forged/expired challenge, bad proof-of-work,
         replay, malformed fields) return HTTP 400 so a real client can retry
         instead of showing a false success.
+
+        Accepted submissions are durably queued and emailed to staff over the
+        service's SMTP configuration, with the submitter's address set as
+        Reply-To. Delivery retries transient SMTP failures in the background;
+        it does not use Discord.
       requestBody:
         required: true
         content:
@@ -116,7 +121,7 @@ paths:
                 ts: { type: string }
                 sig: { type: string }
                 nonce: { type: string, description: "Solved proof-of-work nonce." }
-              required: [name, email, message, challenge, ts, sig, nonce]
+              required: [email, message, challenge, ts, sig, nonce]
       responses:
         '200':
           description: >
@@ -127,7 +132,48 @@ paths:
             Protocol failure: invalid, expired, replayed or unsolved challenge,
             or malformed fields. Client may retry with a fresh challenge.
         '500':
-          description: Delivery to the Discord webhook failed.
+          description: >
+            The submission could not be durably queued for email delivery, or
+            SMTP/the destination inbox is not configured.
+
+  /api/legal-action:
+    post:
+      summary: Submit a withdrawal or cancellation declaration
+      description: >
+        Dedicated legal-action acceptance path. It validates and consumes the
+        signed proof-of-work challenge but does not apply the contact-form
+        honeypot or content blacklist. A 201 response is returned only after the
+        complete declaration, server-generated reference and receipt timestamp
+        have been committed to CockroachDB with requester-confirmation and
+        internal-review delivery state. The response immediately supplies a
+        durable receipt; a background worker additionally sends the receipt
+        over TLS SMTP. A separate worker sends
+        the internal-review copy. SMTP or internal-mailbox unavailability does
+        not undo an accepted declaration: its delivery jobs remain queued.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LegalActionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LegalActionRequest'
+      responses:
+        '201':
+          description: The declaration was durably persisted and its complete durable receipt is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalActionResponse'
+        '400':
+          description: Invalid, expired, replayed or unsolved challenge, or malformed fields.
+        '409':
+          description: The submission ID was already used for different declaration content.
+        '500':
+          description: The reference could not be generated, or the declaration and receipt job could not be committed.
+        '503':
+          description: Durable legal-action storage or an approved retention period is not configured.
 
 components:
   schemas:
@@ -155,3 +201,74 @@ components:
           format: date-time
       required:
         - feedback
+    LegalActionRequest:
+      type: object
+      properties:
+        submissionId:
+          type: string
+          format: uuid
+          description: >
+            Client-generated UUID v4. Reuse it with a fresh proof-of-work
+            challenge when retrying an uncertain request; an identical replay
+            returns the original reference, timestamp and receipt.
+        action:
+          type: string
+          enum: [withdrawal, cancellation]
+        language:
+          type: string
+          enum: [en, de]
+        name:
+          type: string
+          maxLength: 200
+          description: Consumer name used to identify the contract holder.
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Electronic channel for the durable receipt.
+        contract:
+          type: string
+          maxLength: 1000
+          description: Product plus order, customer or subscription identifier.
+        scope:
+          type: string
+          maxLength: 2000
+          description: Optional and used only for a withdrawal.
+        terminationType:
+          type: string
+          enum: [ordinary, extraordinary]
+          description: Used for a cancellation; omission means ordinary termination.
+        reason:
+          type: string
+          maxLength: 5000
+          description: Optional and used only for an extraordinary cancellation.
+        requestedEnd:
+          oneOf:
+            - type: string
+              enum: [earliest]
+            - type: string
+              format: date
+          description: Used for a cancellation; omission means the earliest possible date.
+        challenge:
+          type: string
+        ts:
+          type: string
+        sig:
+          type: string
+        nonce:
+          type: string
+      required:
+        [submissionId, action, language, name, email, contract, challenge, ts, sig, nonce]
+    LegalActionResponse:
+      type: object
+      properties:
+        reference:
+          type: string
+          example: LA-92af8313868168114d4dacbef46c33a2
+        receivedAt:
+          type: string
+          format: date-time
+        receipt:
+          type: string
+          description: Complete server-generated text receipt.
+      required: [reference, receivedAt, receipt]

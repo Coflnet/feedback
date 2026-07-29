@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -50,14 +48,19 @@ const contactMinFillSeconds = 3
 // endpoint: the HMAC secret used to sign challenges, the required proof-of-work
 // difficulty and a small in-memory cache to prevent challenge replay.
 type ContactHandler struct {
-	secret     []byte
-	difficulty int
+	secret                 []byte
+	difficulty             int
+	legalStore             LegalActionStore
+	legalActionsConfigured bool
+	legalRetentionYears    int
+	contactMailStore       ContactEmailOutboxStore
+	contactMailConfigured  bool
 
 	mu   sync.Mutex
 	used map[string]time.Time // solved challenge nonce-token -> expiry, replay guard
 }
 
-func NewContactHandler() *ContactHandler {
+func NewContactHandler(legalStore ...LegalActionStore) *ContactHandler {
 	secret := []byte(os.Getenv("CONTACT_CHALLENGE_SECRET"))
 	if len(secret) == 0 {
 		// No secret configured: generate an ephemeral one. Challenges won't
@@ -80,6 +83,10 @@ func NewContactHandler() *ContactHandler {
 		secret:     secret,
 		difficulty: difficulty,
 		used:       make(map[string]time.Time),
+	}
+	if len(legalStore) > 0 {
+		h.legalStore = legalStore[0]
+		h.contactMailStore, _ = legalStore[0].(ContactEmailOutboxStore)
 	}
 	go h.cleanupLoop()
 	return h
@@ -121,6 +128,7 @@ func (h *ContactHandler) sign(challenge string, ts int64, difficulty int) string
 
 // getChallenge issues a fresh, signed proof-of-work challenge.
 func (h *ContactHandler) getChallenge(c *fiber.Ctx) error {
+	c.Set("Cache-Control", "no-store")
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
 		return fiber.NewError(http.StatusInternalServerError, "could not generate challenge")
@@ -165,6 +173,45 @@ func (h *ContactHandler) rejectBad(c *fiber.Ctx, layer, reason string) error {
 	return c.Status(http.StatusBadRequest).SendString("request rejected")
 }
 
+func (h *ContactHandler) validateChallenge(c *fiber.Ctx) (string, string) {
+	challenge := c.FormValue("challenge")
+	sig := c.FormValue("sig")
+	nonce := c.FormValue("nonce")
+	tsStr := c.FormValue("ts")
+	difficulty := h.difficulty
+
+	if challenge == "" || sig == "" || nonce == "" || tsStr == "" {
+		return "challenge", "missing challenge fields"
+	}
+	ts, err := strconv.ParseInt(tsStr, 10, 64)
+	if err != nil {
+		return "challenge", "unparseable timestamp"
+	}
+	expected := h.sign(challenge, ts, difficulty)
+	if subtle.ConstantTimeCompare([]byte(expected), []byte(sig)) != 1 {
+		return "challenge", "bad signature"
+	}
+	age := time.Now().Unix() - ts
+	if age < contactMinFillSeconds {
+		return "timing", "submitted too fast"
+	}
+	if age > int64(contactChallengeTTL.Seconds()) {
+		return "challenge", "challenge expired"
+	}
+	if !verifyPoW(challenge, nonce, difficulty) {
+		return "pow", "invalid proof of work"
+	}
+
+	h.mu.Lock()
+	if _, seen := h.used[challenge]; seen {
+		h.mu.Unlock()
+		return "replay", "challenge reused"
+	}
+	h.used[challenge] = time.Now().Add(contactChallengeTTL)
+	h.mu.Unlock()
+	return "", ""
+}
+
 func (h *ContactHandler) postContact(c *fiber.Ctx) error {
 	// Layer 1: honeypot. The form ships a hidden field named "website" that a
 	// human never sees or fills. Any value means an automated submitter.
@@ -174,49 +221,16 @@ func (h *ContactHandler) postContact(c *fiber.Ctx) error {
 
 	// Layer 2: proof-of-work challenge. Validate the signed challenge, its age
 	// and the submitted solution.
-	challenge := c.FormValue("challenge")
-	sig := c.FormValue("sig")
-	nonce := c.FormValue("nonce")
-	tsStr := c.FormValue("ts")
-	difficulty := h.difficulty
-
-	if challenge == "" || sig == "" || nonce == "" || tsStr == "" {
-		return h.rejectBad(c, "challenge", "missing challenge fields")
+	if layer, reason := h.validateChallenge(c); layer != "" {
+		return h.rejectBad(c, layer, reason)
 	}
-	ts, err := strconv.ParseInt(tsStr, 10, 64)
-	if err != nil {
-		return h.rejectBad(c, "challenge", "unparseable timestamp")
-	}
-	expected := h.sign(challenge, ts, difficulty)
-	if subtle.ConstantTimeCompare([]byte(expected), []byte(sig)) != 1 {
-		return h.rejectBad(c, "challenge", "bad signature")
-	}
-	age := time.Now().Unix() - ts
-	if age < contactMinFillSeconds {
-		return h.rejectBad(c, "timing", "submitted too fast")
-	}
-	if age > int64(contactChallengeTTL.Seconds()) {
-		return h.rejectBad(c, "challenge", "challenge expired")
-	}
-	if !verifyPoW(challenge, nonce, difficulty) {
-		return h.rejectBad(c, "pow", "invalid proof of work")
-	}
-
-	// Replay guard: a solved challenge may be used exactly once.
-	h.mu.Lock()
-	if _, seen := h.used[challenge]; seen {
-		h.mu.Unlock()
-		return h.rejectBad(c, "replay", "challenge reused")
-	}
-	h.used[challenge] = time.Now().Add(contactChallengeTTL)
-	h.mu.Unlock()
 
 	// Read the actual message fields.
 	name := strings.TrimSpace(c.FormValue("name"))
 	email := strings.TrimSpace(c.FormValue("email"))
 	message := strings.TrimSpace(c.FormValue("message"))
 
-	if name == "" || email == "" || message == "" {
+	if email == "" || message == "" {
 		return h.rejectBad(c, "validation", "empty required field")
 	}
 	if !looksLikeEmail(email) {
@@ -229,8 +243,13 @@ func (h *ContactHandler) postContact(c *fiber.Ctx) error {
 		return h.dropSilent(c, "blacklist", fmt.Sprintf("spam score %d: %s", score, why))
 	}
 
-	if err := sendContactToDiscord(name, email, message); err != nil {
-		slog.Error("sending contact message to discord failed", "err", err)
+	if !h.contactMailConfigured || h.contactMailStore == nil {
+		slog.Error("contact form email delivery is not configured")
+		errorsCounter.Inc()
+		return fiber.NewError(http.StatusInternalServerError, "could not deliver message")
+	}
+	if err := h.contactMailStore.QueueContactEmail(name, email, message); err != nil {
+		slog.Error("queueing contact form email failed")
 		errorsCounter.Inc()
 		return fiber.NewError(http.StatusInternalServerError, "could not deliver message")
 	}
@@ -246,45 +265,4 @@ func looksLikeEmail(s string) bool {
 		return false
 	}
 	return emailRegex.MatchString(s)
-}
-
-func sendContactToDiscord(name, email, message string) error {
-	webhookURL := os.Getenv("CONTACT_WEBHOOK_URL")
-	if webhookURL == "" {
-		webhookURL = os.Getenv("WEBHOOK_URL")
-	}
-	if webhookURL == "" || webhookURL == "YOUR_WEBHOOK_URL_HERE" {
-		return fmt.Errorf("no contact webhook configured (set CONTACT_WEBHOOK_URL)")
-	}
-
-	// Keep the historical "<name> <email>: <message>" format.
-	content := fmt.Sprintf("%s %s: %s", name, email, message)
-
-	payload := map[string]interface{}{
-		"content": content,
-		// Never let a submitted @everyone/@here or role mention fire.
-		"allowed_mentions": map[string]interface{}{"parse": []string{}},
-	}
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("error creating JSON payload: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonPayload))
-	if err != nil {
-		return fmt.Errorf("error creating HTTP request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("error sending HTTP request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("received unexpected status code: %s", resp.Status)
-	}
-	return nil
 }

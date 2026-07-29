@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -83,9 +84,51 @@ func (h *ApiHandler) startApi() error {
 	app.Post("/api/pro-skyblock-feedback", h.feedbackProSkyblocPostRequest)
 
 	// Contact form (landing page) with multi-layered anti-spam.
-	contact := NewContactHandler()
+	contact := NewContactHandler(h.databaseHandler)
+	smtpConfig, smtpConfigured := SMTPConfigFromEnv()
+	legalActionInbox, inboxConfigured := LegalActionInboxFromEnv()
+	contactInbox, contactInboxConfigured := ContactInboxFromEnv()
+	legalRetentionYears, retentionConfigured := LegalActionRetentionFromEnv()
+	contact.legalActionsConfigured = retentionConfigured
+	contact.legalRetentionYears = legalRetentionYears
+	contact.contactMailConfigured = smtpConfigured && contactInboxConfigured
 	app.Get("/api/contact-form/challenge", contact.getChallenge)
 	app.Post("/api/contact-form", contact.postContact)
+	app.Post("/api/legal-action", contact.postLegalAction)
+	workerContext, stopWorker := context.WithCancel(context.Background())
+	app.Hooks().OnShutdown(func() error {
+		stopWorker()
+		return nil
+	})
+	go NewLegalReceiptWorker(h.databaseHandler, nil).RunPurger(workerContext)
+	if smtpConfigured {
+		if contactInboxConfigured {
+			go NewContactEmailWorker(
+				h.databaseHandler,
+				NewSMTPContactMailer(smtpConfig, contactInbox),
+			).Run(workerContext)
+		} else {
+			slog.Warn("contact form inbox is not configured; contact-form submissions are rejected")
+		}
+		go NewLegalReceiptWorker(
+			h.databaseHandler,
+			NewSMTPReceiptMailer(smtpConfig, legalActionInbox),
+		).Run(workerContext)
+		if inboxConfigured {
+			go NewLegalReviewWorker(
+				h.databaseHandler,
+				NewSMTPReviewMailer(smtpConfig, legalActionInbox),
+			).Run(workerContext)
+		}
+	} else {
+		slog.Warn("SMTP is not configured; accepted legal-action email jobs remain queued and contact-form submissions are rejected")
+	}
+	if !inboxConfigured {
+		slog.Warn("legal action inbox is not configured; accepted internal-review jobs remain queued")
+	}
+	if !retentionConfigured {
+		slog.Warn("legal action retention override is invalid; legal action endpoint is disabled")
+	}
 
 	// Serve OpenAPI spec (embedded) and a minimal Swagger UI
 	app.Get("/openapi.yaml", func(c *fiber.Ctx) error {
@@ -133,7 +176,7 @@ func (h *ApiHandler) healthRequest(c *fiber.Ctx) error {
 func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
-		slog.Error("there was an error when parsing feedback", err)
+		slog.Error("there was an error when parsing feedback", "err", err)
 		errorsCounter.Inc()
 		return err
 	}
@@ -146,7 +189,7 @@ func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 			return nil
 		}
 
-		slog.Error("there was an error when saving feedback in db", err)
+		slog.Error("there was an error when saving feedback in db", "err", err)
 		errorsCounter.Inc()
 		return err
 	}
@@ -165,7 +208,7 @@ func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 func (h *ApiHandler) feedbackSongvoterPostRequest(c *fiber.Ctx) error {
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
-		slog.Error("there was an error when parsing feedback", err)
+		slog.Error("there was an error when parsing feedback", "err", err)
 		errorsCounter.Inc()
 		return err
 	}
@@ -178,7 +221,7 @@ func (h *ApiHandler) feedbackSongvoterPostRequest(c *fiber.Ctx) error {
 			return nil
 		}
 
-		slog.Error("there was an error when saving feedback in db", err)
+		slog.Error("there was an error when saving feedback in db", "err", err)
 		errorsCounter.Inc()
 		return err
 	}
@@ -192,7 +235,7 @@ func (h *ApiHandler) feedbackSongvoterPostRequest(c *fiber.Ctx) error {
 func (h *ApiHandler) feedbackProSkyblocPostRequest(c *fiber.Ctx) error {
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
-		slog.Error("there was an error when parsing feedback", err)
+		slog.Error("there was an error when parsing feedback", "err", err)
 		errorsCounter.Inc()
 		return err
 	}
@@ -205,7 +248,7 @@ func (h *ApiHandler) feedbackProSkyblocPostRequest(c *fiber.Ctx) error {
 			return nil
 		}
 
-		slog.Error("there was an error when saving feedback in db", err)
+		slog.Error("there was an error when saving feedback in db", "err", err)
 		errorsCounter.Inc()
 		return err
 	}
@@ -231,7 +274,7 @@ func parseFeedbackFromRequest(c *fiber.Ctx) (*Feedback, error) {
 	var d interface{}
 	err := json.Unmarshal([]byte(feedback.Feedback), &d)
 	if err != nil {
-		slog.Error("could not parse feedback", err)
+		slog.Error("could not parse feedback", "err", err)
 		errorsCounter.Inc()
 
 		return nil, err
