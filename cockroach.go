@@ -63,7 +63,6 @@ func (d *DatabaseHandler) migrations() error {
 		&Feedback{},
 		&LegalAction{},
 		&LegalReceiptOutbox{},
-		&LegalReviewOutbox{},
 		&ContactEmailOutbox{},
 	)
 	if err != nil {
@@ -155,19 +154,7 @@ func (d *DatabaseHandler) AcceptLegalAction(action *LegalAction) (*LegalAction, 
 			CreatedAt:            action.ReceivedAt,
 			NextAttemptAt:        action.ReceivedAt,
 		}
-		if action.Email == "" {
-			// The HTTP response is the immediate durable requester
-			// confirmation when no optional email address was supplied.
-			receipt.SentAt = &action.ReceivedAt
-		}
 		if err := tx.Create(receipt).Error; err != nil {
-			return err
-		}
-		if err := tx.Create(&LegalReviewOutbox{
-			LegalActionReference: action.Reference,
-			CreatedAt:            action.ReceivedAt,
-			NextAttemptAt:        action.ReceivedAt,
-		}).Error; err != nil {
 			return err
 		}
 		accepted = action
@@ -246,72 +233,11 @@ func (d *DatabaseHandler) RetryLegalReceipt(id uint64, nextAttemptAt time.Time) 
 		}).Error
 }
 
-func (d *DatabaseHandler) ClaimLegalReviewOutbox(now time.Time, lease time.Duration, limit int) ([]LegalReviewOutbox, error) {
-	var jobs []LegalReviewOutbox
-	err := d.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Where("sent_at IS NULL AND next_attempt_at <= ? AND (locked_until IS NULL OR locked_until < ?)", now, now).
-			Order("next_attempt_at, id").
-			Limit(limit).
-			Find(&jobs).Error; err != nil {
-			return err
-		}
-		if len(jobs) == 0 {
-			return nil
-		}
-		ids := make([]uint64, len(jobs))
-		lockedUntil := now.Add(lease)
-		for index := range jobs {
-			ids[index] = jobs[index].ID
-			jobs[index].AttemptCount++
-			jobs[index].LockedUntil = &lockedUntil
-		}
-		return tx.Model(&LegalReviewOutbox{}).
-			Where("id IN ?", ids).
-			Updates(map[string]interface{}{
-				"attempt_count": gorm.Expr("attempt_count + 1"),
-				"locked_until":  lockedUntil,
-			}).Error
-	})
-	return jobs, err
-}
-
-func (d *DatabaseHandler) MarkLegalReviewSent(id uint64, sentAt time.Time) error {
-	return d.db.Transaction(func(tx *gorm.DB) error {
-		var outbox LegalReviewOutbox
-		if err := tx.Select("legal_action_reference").
-			Where("id = ? AND sent_at IS NULL", id).
-			First(&outbox).Error; errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		} else if err != nil {
-			return err
-		}
-		if err := tx.Model(&LegalReviewOutbox{}).
-			Where("id = ? AND sent_at IS NULL", id).
-			Updates(map[string]interface{}{
-				"sent_at":      sentAt,
-				"locked_until": nil,
-			}).Error; err != nil {
-			return err
-		}
-		return extendLegalActionExpiry(tx, outbox.LegalActionReference, sentAt)
-	})
-}
-
 func extendLegalActionExpiry(tx *gorm.DB, reference string, sentAt time.Time) error {
 	expiresAt := legalActionExpiry(sentAt, 6)
 	return tx.Model(&LegalAction{}).
 		Where("reference = ? AND (expires_at IS NULL OR expires_at < ?)", reference, expiresAt).
 		Update("expires_at", expiresAt).Error
-}
-
-func (d *DatabaseHandler) RetryLegalReview(id uint64, nextAttemptAt time.Time) error {
-	return d.db.Model(&LegalReviewOutbox{}).
-		Where("id = ? AND sent_at IS NULL", id).
-		Updates(map[string]interface{}{
-			"next_attempt_at": nextAttemptAt,
-			"locked_until":    nil,
-		}).Error
 }
 
 func (d *DatabaseHandler) PurgeExpiredLegalActions(now time.Time) (int64, error) {
@@ -320,23 +246,15 @@ func (d *DatabaseHandler) PurgeExpiredLegalActions(now time.Time) (int64, error)
 		sentReceiptReferences := tx.Model(&LegalReceiptOutbox{}).
 			Select("legal_action_reference").
 			Where("sent_at IS NOT NULL")
-		sentReviewReferences := tx.Model(&LegalReviewOutbox{}).
-			Select("legal_action_reference").
-			Where("sent_at IS NOT NULL")
 		var references []string
 		if err := tx.Model(&LegalAction{}).
 			Where("expires_at IS NOT NULL AND expires_at <= ? AND legal_hold = ?", now, false).
 			Where("reference IN (?)", sentReceiptReferences).
-			Where("reference IN (?)", sentReviewReferences).
 			Pluck("reference", &references).Error; err != nil || len(references) == 0 {
 			return err
 		}
 		if err := tx.Where("legal_action_reference IN ? AND sent_at IS NOT NULL", references).
 			Delete(&LegalReceiptOutbox{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("legal_action_reference IN ? AND sent_at IS NOT NULL", references).
-			Delete(&LegalReviewOutbox{}).Error; err != nil {
 			return err
 		}
 		result := tx.Where("reference IN ? AND expires_at <= ? AND legal_hold = ?", references, now, false).

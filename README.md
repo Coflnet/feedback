@@ -83,23 +83,20 @@ Optional comma-separated extra keywords to reject, applied without a redeploy.
 cancellation declarations. It reuses the signed proof-of-work challenge, but
 never applies the contact-form honeypot or spam blacklist. A `201` response is
 returned only after the complete declaration, server-generated reference and
-server receipt time have been committed to CockroachDB together with requester
-confirmation and internal-review delivery state. The JSON response immediately
-contains the same reference and a complete durable text receipt. If the
-requester supplies the required electronic confirmation address, a background worker sends that
-exact persisted receipt there. A separate worker sends it to the configured
-internal inbox, with separate leases and retry state so either delivery can
-recover without marking the other complete. Both outboxes store only a
-foreign-key reference to the legal-action record, not a second copy of its
-personal data. The requester confirmation uses the internal inbox as its
-`Reply-To`, so replies reach the responsible staff mailbox without coupling
-the two delivery jobs.
+server receipt time have been committed to CockroachDB together with its email
+delivery state. The JSON response immediately contains the same reference and
+a complete durable text receipt. A background worker sends that exact persisted
+receipt to the requester and copies the configured legal inbox in the same SMTP
+transaction. That inbox is also the message's `Reply-To`, so replies reach the
+responsible staff mailbox directly without a duplicate internal-review email.
+The outbox stores only a foreign-key reference to the legal-action record, not a
+second copy of its personal data.
 
 Every request must include a client-generated UUID v4 in `submissionId`.
 If the client loses the response, it retries the same declaration and
 `submissionId` with a fresh proof-of-work challenge. The unique database key
 then returns the original reference, timestamp and receipt without creating
-another declaration or either outbox job. Reusing the ID for different content
+another declaration or outbox job. Reusing the ID for different content
 returns `409`.
 
 For withdrawal, name, contract identification and the receipt email channel are
@@ -113,10 +110,10 @@ extraordinary-termination reason is also optional. Supplied structured values
 are persisted and reproduced in the server and email receipts.
 
 The endpoint fails closed with `503` before accepting a declaration when
-durable storage or the retention setting is unavailable. SMTP and the internal
+durable storage or the retention setting is unavailable. SMTP and the legal
 mailbox are delivery channels, not acceptance prerequisites: if either is
 temporarily unavailable, the declaration is still accepted and its
-transactional delivery jobs stay queued until the service restarts with valid
+transactional delivery job stays queued until the service restarts with valid
 configuration. Port `465` uses implicit TLS; all other ports must advertise
 STARTTLS. TLS 1.2 or newer is required.
 
@@ -150,12 +147,11 @@ Receipt sender, either an email address or a mailbox such as
 
 ### LEGAL_ACTION_INBOX
 
-Required internal mailbox for operational review and processing of every
-accepted withdrawal or cancellation. It must be a valid address whose access is
-limited to authorized personnel. Internal delivery contains the same canonical
-persisted declaration, server reference and UTC receipt timestamp as the
-requester receipt. It has its own transactional outbox and retry state; it is
-not a carbon copy whose success is inferred from requester delivery.
+Required legal mailbox for operational review and processing of every accepted
+withdrawal or cancellation. It must be a valid address whose access is limited
+to authorized personnel. The requester receipt includes this mailbox as both
+`Cc` and `Reply-To`; the SMTP transaction is considered complete only after the
+server accepts both the requester and legal recipients.
 
 ### LEGAL_ACTION_RETENTION_YEARS
 
@@ -164,14 +160,14 @@ received and sent commercial letters under § 257 HGB. If set, it must equal
 `6`; another value disables acceptance rather than silently changing the
 documented retention period. Each accepted record receives an indexed expiry
 at the start of the following year. A daily job deletes expired records only
-after the requester confirmation is complete and the internal review
-notification was sent, and while no legal hold is set.
+after the requester-and-legal receipt transaction is complete and while no
+legal hold is set.
 
 ### retention policy required before production
 
 The configured period and backup-erasure schedule must remain documented in
 the controller's retention register. Pending receipts and records under legal
-hold are not automatically purged. The internal inbox must have an owned review
+hold are not automatically purged. The legal inbox must have an owned review
 workflow and monitoring; delivery to that mailbox is the hand-off, not proof
 that the requested contract action was completed.
 

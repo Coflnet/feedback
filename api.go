@@ -110,21 +110,17 @@ func (h *ApiHandler) startApi() error {
 		} else {
 			slog.Warn("contact form inbox is not configured; contact-form submissions are rejected")
 		}
-		go NewLegalReceiptWorker(
-			h.databaseHandler,
-			NewSMTPReceiptMailer(smtpConfig, legalActionInbox),
-		).Run(workerContext)
 		if inboxConfigured {
-			go NewLegalReviewWorker(
+			go NewLegalReceiptWorker(
 				h.databaseHandler,
-				NewSMTPReviewMailer(smtpConfig, legalActionInbox),
+				NewSMTPReceiptMailer(smtpConfig, legalActionInbox),
 			).Run(workerContext)
 		}
 	} else {
 		slog.Warn("SMTP is not configured; accepted legal-action email jobs remain queued and contact-form submissions are rejected")
 	}
 	if !inboxConfigured {
-		slog.Warn("legal action inbox is not configured; accepted internal-review jobs remain queued")
+		slog.Warn("legal action inbox is not configured; accepted legal-action email jobs remain queued")
 	}
 	if !retentionConfigured {
 		slog.Warn("legal action retention override is invalid; legal action endpoint is disabled")

@@ -144,12 +144,12 @@ paths:
         signed proof-of-work challenge but does not apply the contact-form
         honeypot or content blacklist. A 201 response is returned only after the
         complete declaration, server-generated reference and receipt timestamp
-        have been committed to CockroachDB with requester-confirmation and
-        internal-review delivery state. The response immediately supplies a
-        durable receipt; a background worker additionally sends the receipt
-        over TLS SMTP. A separate worker sends
-        the internal-review copy. SMTP or internal-mailbox unavailability does
-        not undo an accepted declaration: its delivery jobs remain queued.
+        have been committed to CockroachDB with email delivery state. The
+        response immediately supplies a durable receipt; a background worker
+        additionally sends the receipt over TLS SMTP to the requester with the
+        configured legal inbox as Cc and Reply-To in the same transaction.
+        SMTP or legal-inbox unavailability does not undo an accepted
+        declaration: its delivery job remains queued.
       requestBody:
         required: true
         content:

@@ -73,7 +73,7 @@ func NewSMTPContactMailer(config SMTPConfig, inbox mail.Address) *SMTPContactMai
 }
 
 func (m *SMTPContactMailer) SendContact(job *ContactEmailOutbox) error {
-	return m.sender.send(m.inbox.Address, contactEmail(m.sender.config.From, m.inbox, job))
+	return m.sender.send([]string{m.inbox.Address}, contactEmail(m.sender.config.From, m.inbox, job))
 }
 
 // contactEmail renders the staff-facing message for a queued contact-form
@@ -88,6 +88,7 @@ func contactEmail(from, inbox mail.Address, job *ContactEmailOutbox) string {
 	return plainTextEmail(
 		from,
 		inbox,
+		mail.Address{},
 		replyTo,
 		contactSubject(job.Message),
 		fmt.Sprintf("contact-%d", job.ID),

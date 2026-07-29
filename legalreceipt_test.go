@@ -17,14 +17,6 @@ type memoryOutboxStore struct {
 	purged      int64
 }
 
-type memoryReviewOutboxStore struct {
-	action      *LegalAction
-	job         LegalReviewOutbox
-	nextAttempt time.Time
-	sent        bool
-	retries     int
-}
-
 func (s *memoryOutboxStore) ClaimLegalReceiptOutbox(now time.Time, _ time.Duration, _ int) ([]LegalReceiptOutbox, error) {
 	if s.sent || now.Before(s.nextAttempt) {
 		return nil, nil
@@ -52,39 +44,12 @@ func (s *memoryOutboxStore) PurgeExpiredLegalActions(time.Time) (int64, error) {
 	return s.purged, nil
 }
 
-func (s *memoryReviewOutboxStore) ClaimLegalReviewOutbox(now time.Time, _ time.Duration, _ int) ([]LegalReviewOutbox, error) {
-	if s.sent || now.Before(s.nextAttempt) {
-		return nil, nil
-	}
-	s.job.AttemptCount++
-	return []LegalReviewOutbox{s.job}, nil
-}
-
-func (s *memoryReviewOutboxStore) LoadLegalAction(string) (*LegalAction, error) {
-	return s.action, nil
-}
-
-func (s *memoryReviewOutboxStore) MarkLegalReviewSent(_ uint64, _ time.Time) error {
-	s.sent = true
-	return nil
-}
-
-func (s *memoryReviewOutboxStore) RetryLegalReview(_ uint64, next time.Time) error {
-	s.retries++
-	s.nextAttempt = next
-	return nil
-}
-
 type retryMailer struct {
 	failures int
 	sends    int
 }
 
 func (m *retryMailer) SendReceipt(*LegalAction) error {
-	return m.send()
-}
-
-func (m *retryMailer) SendReview(*LegalAction) error {
 	return m.send()
 }
 
@@ -133,44 +98,6 @@ func TestLegalReceiptWorkerRetriesThenMarksSent(t *testing.T) {
 	}
 }
 
-func TestLegalReviewWorkerRetriesIndependently(t *testing.T) {
-	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
-	action := &LegalAction{
-		Reference:          "LA-review",
-		ReceivedAt:         now,
-		Action:             "cancellation",
-		Language:           "en",
-		Name:               "Jane Doe",
-		Email:              "jane@example.com",
-		ContractIdentifier: "Order 123",
-		TerminationType:    "ordinary",
-		RequestedEnd:       "At the earliest possible date",
-		Declaration:        "I hereby terminate the contract.",
-	}
-	store := &memoryReviewOutboxStore{
-		action: action,
-		job: LegalReviewOutbox{
-			ID:                   2,
-			LegalActionReference: action.Reference,
-		},
-	}
-	mailer := &retryMailer{failures: 1}
-	worker := NewLegalReviewWorker(store, mailer)
-
-	worker.ProcessOnce(now)
-	if store.sent || store.retries != 1 || mailer.sends != 1 {
-		t.Fatalf("first review failure was not queued independently: sent=%v retries=%d sends=%d", store.sent, store.retries, mailer.sends)
-	}
-	worker.ProcessOnce(now.Add(30 * time.Second))
-	if mailer.sends != 1 {
-		t.Fatal("review worker retried before the scheduled time")
-	}
-	worker.ProcessOnce(store.nextAttempt)
-	if !store.sent || mailer.sends != 2 {
-		t.Fatalf("review retry did not send and mark the job: sent=%v sends=%d", store.sent, mailer.sends)
-	}
-}
-
 func TestReceiptEmailContainsCompleteServerReceipt(t *testing.T) {
 	action := &LegalAction{
 		Reference:          "LA-test",
@@ -203,39 +130,11 @@ func TestReceiptEmailContainsCompleteServerReceipt(t *testing.T) {
 	if !strings.Contains(message, "To: <jane@example.com>") {
 		t.Fatalf("receipt email has wrong recipient: %s", message)
 	}
+	if !strings.Contains(message, "Cc: "+replyTo.String()) {
+		t.Fatalf("receipt email does not copy the legal inbox: %s", message)
+	}
 	if !strings.Contains(message, "Reply-To: "+replyTo.String()) {
 		t.Fatalf("receipt email has wrong reply address: %s", message)
-	}
-}
-
-func TestReviewEmailContainsExactCanonicalRecord(t *testing.T) {
-	action := &LegalAction{
-		Reference:          "LA-review",
-		ReceivedAt:         time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
-		Action:             "withdrawal",
-		Language:           "de",
-		Name:               "Jane Doe",
-		Email:              "jane@example.com",
-		ContractIdentifier: "Order 123",
-		Scope:              "Subscription",
-		Declaration:        "Hiermit widerrufe ich den Vertrag.",
-	}
-	inbox := mail.Address{Name: "Coflnet Legal", Address: "legal@example.com"}
-	message := reviewEmail(mail.Address{Name: "Coflnet", Address: "sender@example.com"}, inbox, action)
-	parts := strings.SplitN(message, "\r\n\r\n", 2)
-	if len(parts) != 2 {
-		t.Fatalf("review email has no body: %s", message)
-	}
-	expectedBody := strings.ReplaceAll(action.receipt(), "\n", "\r\n") + "\r\n"
-	if parts[1] != expectedBody {
-		t.Fatalf("review email does not contain the exact canonical record:\n%s", parts[1])
-	}
-	if !strings.Contains(message, "To: "+inbox.String()) ||
-		!strings.Contains(message, "Message-ID: <LA-review-review@coflnet.com>") {
-		t.Fatalf("review email has wrong routing metadata: %s", message)
-	}
-	if strings.Contains(message, "\r\nReply-To:") {
-		t.Fatalf("internal review email unexpectedly has a reply address: %s", message)
 	}
 }
 

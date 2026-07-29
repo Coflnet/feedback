@@ -14,9 +14,9 @@ import (
 )
 
 type LegalActionStore interface {
-	// AcceptLegalAction atomically persists a new declaration and its requester
-	// confirmation/internal-review delivery states, or returns the record
-	// already accepted for the submission ID.
+	// AcceptLegalAction atomically persists a new declaration and its email
+	// delivery state, or returns the record already accepted for the submission
+	// ID.
 	AcceptLegalAction(*LegalAction) (*LegalAction, bool, error)
 }
 
