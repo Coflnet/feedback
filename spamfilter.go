@@ -20,6 +20,7 @@ var blockedDomains = []string{
 	"cutt.ly", "tau.lu", "brnd.li", "bit.ly", "tinyurl.com",
 	"qrlinkgenerator.com", "t.me", "is.gd", "rebrand.ly",
 	"shorturl", "rb.gy", "lnkd.in", "web-library.net",
+	"www.google.com",
 }
 
 // spamPhrases are strong content signals lifted from real submissions. Each is

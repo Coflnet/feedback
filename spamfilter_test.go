@@ -20,6 +20,7 @@ var spamSamples = []struct{ name, email, message string }{
 	{"IsaacHoono", "diego6215@gmail.com", "The $27,000,000 Jackpot Is a Crown for Cash https://tau.lu/09eb069b3 CLAIM YOUR $25,000 BONUS"},
 	{"Yasuhiro Yamada", "rohtopharmacy5@gmail.com", "We need you to serve as our Spokesperson/Financial Coordinator for our company. It's a part-time job with a minimum salary of $5k"},
 	{"", "be931gpebogyeh@web-library.net", "Balance +1,824868 btc. Next -> telegra.ph/COMPENSATION-05-12-9?hs=1c464c13d75ee06cb1a6697f9c3cf619& 5v2ppm"},
+	{"Raymond Abbott", "raymond.abbott@jmailservice.com", "Can I send you some keywords that would work best for you? https://www.google.com/"},
 }
 
 func TestSpamSamplesBlocked(t *testing.T) {
