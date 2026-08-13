@@ -22,7 +22,7 @@ type LegalActionStore interface {
 
 type LegalAction struct {
 	Reference          string     `gorm:"primaryKey;size:35" json:"reference"`
-	SubmissionID       string     `gorm:"size:36;uniqueIndex" json:"submissionId"`
+	SubmissionID       string     `gorm:"size:36;unique" json:"submissionId"`
 	ReceivedAt         time.Time  `gorm:"not null;index" json:"receivedAt"`
 	Action             string     `gorm:"not null;size:16" json:"action"`
 	Language           string     `gorm:"not null;size:2" json:"language"`

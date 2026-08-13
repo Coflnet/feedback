@@ -25,7 +25,7 @@ const (
 
 type LegalReceiptOutbox struct {
 	ID                   uint64       `gorm:"primaryKey;autoIncrement"`
-	LegalActionReference string       `gorm:"not null;size:35;uniqueIndex"`
+	LegalActionReference string       `gorm:"not null;size:35;unique"`
 	LegalAction          *LegalAction `gorm:"foreignKey:LegalActionReference;references:Reference;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
 	CreatedAt            time.Time    `gorm:"not null"`
 	NextAttemptAt        time.Time    `gorm:"not null;index"`
