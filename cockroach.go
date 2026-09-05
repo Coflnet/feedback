@@ -14,12 +14,13 @@ import (
 )
 
 type FeedbackRequest struct {
-	Feedback     string      `json:"feedback"`
-	Data         interface{} `json:"data"`
-	User         string      `json:"user"`
-	Context      string      `json:"context"`
-	FeedbackName string      `json:"fedbackName"`
-	Timestamp    time.Time   `json:"timestamp"`
+	Feedback           string      `json:"feedback"`
+	Data               interface{} `json:"data"`
+	User               string      `json:"user"`
+	Context            string      `json:"context"`
+	FeedbackName       string      `json:"feedbackName"`
+	LegacyFeedbackName string      `json:"fedbackName"`
+	Timestamp          time.Time   `json:"timestamp"`
 }
 
 type Feedback struct {
@@ -37,7 +38,7 @@ type DatabaseHandler struct {
 }
 
 // ErrDuplicateFeedback is returned when the last stored feedback matches the
-// incoming one and should not be saved or forwarded again.
+// incoming one and should not be saved again. Webhook delivery can still be retried.
 var ErrDuplicateFeedback = errors.New("duplicate feedback")
 
 func NewDatabaseHandler() *DatabaseHandler {
@@ -271,6 +272,7 @@ func (d *DatabaseHandler) SaveFeedback(f *Feedback) error {
 	res := d.db.Order("created_at desc").First(&last)
 	if res.Error == nil {
 		if last.Feedback == f.Feedback && last.AdditionalInformations == f.AdditionalInformations {
+			f.ID = last.ID
 			slog.Debug("detected duplicate feedback; skipping save")
 			return ErrDuplicateFeedback
 		}

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -40,7 +39,12 @@ var (
 // the binary.
 
 type ApiHandler struct {
-	databaseHandler *DatabaseHandler
+	databaseHandler interface {
+		LegalActionStore
+		LegalReceiptOutboxStore
+		ContactEmailOutboxStore
+		SaveFeedback(*Feedback) error
+	}
 }
 
 func NewApiHandler(databaseHandler *DatabaseHandler) *ApiHandler {
@@ -178,22 +182,19 @@ func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 	}
 
 	err = h.saveFeedback(feedback)
-	if err != nil {
-		if errors.Is(err, ErrDuplicateFeedback) {
-			slog.Warn("duplicate feedback received; skipping webhook and storage")
-			c.Status(204)
-			return nil
-		}
-
+	if err != nil && !errors.Is(err, ErrDuplicateFeedback) {
 		slog.Error("there was an error when saving feedback in db", "err", err)
 		errorsCounter.Inc()
 		return err
 	}
 
+	// Saving succeeds before delivery. Retry delivery even when the payload was
+	// already stored: the previous webhook attempt may have failed.
 	err = sendMessageToDiscordBot(feedback)
 	if err != nil {
-		slog.Error("sending message to discord failed", "err", err)
-		return err
+		slog.Error("feedback.discord.delivery.failed", "feedbackId", feedback.ID, "err", err)
+		errorsCounter.Inc()
+		return fiber.NewError(fiber.StatusBadGateway, "Report saved, but Discord delivery failed. Please retry.")
 	}
 
 	feedbackCounter.Inc()
@@ -266,36 +267,23 @@ func parseFeedbackFromRequest(c *fiber.Ctx) (*Feedback, error) {
 		return nil, err
 	}
 
-	// parse data
-	var d interface{}
-	err := json.Unmarshal([]byte(feedback.Feedback), &d)
-	if err != nil {
-		slog.Error("could not parse feedback", "err", err)
-		errorsCounter.Inc()
-
-		return nil, err
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(feedback.Feedback), &data); err != nil || data == nil {
+		return nil, fiber.NewError(fiber.StatusBadRequest, "feedback must contain a JSON object")
 	}
-	feedback.Data = d
 	feedback.Timestamp = time.Now()
-
-	content := ""
-
-	if feedback.Data != nil {
-		// try to extract additionalInformation
-		additionalInformation, ok := feedback.Data.(map[string]interface{})["additionalInformation"]
-		if ok {
-			// check if additionalInformation is a string
-			if _, ok = additionalInformation.(string); !ok {
-				slog.Warn("additionalInformation is not a string, can't use it")
-			}
-			content = additionalInformation.(string)
-			slog.Warn("found additionalInformation in feedback data")
-		} else {
-			slog.Warn("could not find additionalInformation in feedback data")
-		}
+	if feedback.FeedbackName == "" {
+		feedback.FeedbackName = feedback.LegacyFeedbackName
 	}
-
-	if content == "" {
+	content, _ := data["additionalInformation"].(string)
+	if feedback.FeedbackName == "web-error" {
+		reportID, _ := data["reportId"].(string)
+		errorDetails, _ := data["error"].(map[string]interface{})
+		message, _ := errorDetails["message"].(string)
+		if strings.TrimSpace(reportID) == "" || strings.TrimSpace(message) == "" {
+			return nil, fiber.NewError(fiber.StatusBadRequest, "web-error requires reportId and error.message")
+		}
+	} else if content == "" {
 		return nil, &AdditionalInformationIsEmptyError{}
 	}
 
@@ -319,16 +307,12 @@ func (h *ApiHandler) saveFeedback(f *Feedback) error {
 }
 
 func sendMessageToDiscordBot(feedback *Feedback) error {
-	webhookUrl := os.Getenv("WEBHOOK_URL")
-
-	if webhookUrl == "YOUR_WEBHOOK_URL_HERE" {
-		return fmt.Errorf("please replace 'YOUR_WEBHOOK_URL_HERE' with your actual Discord webhook URL")
-	}
+	isErrorReport := feedback.FeedbackName == "web-error"
 
 	// If additional information is provided but it's too short, don't send the message.
 	// This prevents sending trivial additional info (shorter than 5 characters).
 	trimmed := strings.TrimSpace(feedback.AdditionalInformations)
-	if trimmed != "" && utf8.RuneCountInString(trimmed) < 5 {
+	if !isErrorReport && trimmed != "" && utf8.RuneCountInString(trimmed) < 5 {
 		slog.Warn("additionalInformation is too short; not sending message to Discord")
 		return nil
 	}
@@ -338,6 +322,10 @@ func sendMessageToDiscordBot(feedback *Feedback) error {
 	if err := json.Unmarshal([]byte(feedback.Feedback), &parsed); err != nil {
 		slog.Error("could not parse feedback JSON", "err", err)
 		return err
+	}
+
+	if isErrorReport {
+		return deliverDiscordFeedback(feedback, parsed, "")
 	}
 
 	// helper to read boolean safely
@@ -447,35 +435,7 @@ func sendMessageToDiscordBot(feedback *Feedback) error {
 	}
 	buf.WriteString("\n")
 
-	// use the formatted text as the Discord message content
-	payload := map[string]string{
-		"content": buf.String(),
-	}
-
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("error creating JSON payload: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", webhookUrl, bytes.NewBuffer(jsonPayload))
-	if err != nil {
-		return fmt.Errorf("error creating HTTP request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("error sending HTTP request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("received non-204 status code: %s", resp.Status)
-	}
-
-	return nil
+	return deliverDiscordFeedback(feedback, parsed, buf.String())
 }
 
 type AdditionalInformationIsEmptyError struct{}

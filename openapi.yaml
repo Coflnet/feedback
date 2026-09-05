@@ -24,7 +24,9 @@ paths:
   /api:
     post:
       summary: Submit feedback
-      description: Accepts a feedback envelope. On success returns HTTP 204 No Content.
+      description: >
+        Accepts a feedback envelope. Error reports and oversized messages include
+        the full JSON as a Discord attachment. On success returns HTTP 204 No Content.
       requestBody:
         required: true
         content:
@@ -36,6 +38,8 @@ paths:
           description: No Content
         '400':
           description: Bad Request
+        '502':
+          description: Report stored, but Discord delivery failed. Retry the submission.
 
   /api/songvoter-feedback:
     post:
@@ -195,6 +199,10 @@ components:
           example: 'webapp'
         feedbackName:
           type: string
+          description: >
+            Use web-error for diagnostic reports. Their feedback JSON must contain
+            reportId and error.message; additionalInformation is optional.
+            The legacy spelling fedbackName is also accepted.
           example: 'ui-bug'
         timestamp:
           type: string

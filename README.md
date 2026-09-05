@@ -15,6 +15,46 @@
 ### WEBHOOK_URL
 Discord webhook the feedback endpoint forwards to.
 
+## Error reports and Discord delivery
+
+Submit `feedbackName: "web-error"` with a JSON-encoded `feedback` object containing
+`reportId` and `error.message`. A human-written `additionalInformation` comment is
+optional for these reports. `FeedbackName` and the legacy typo `fedbackName` are
+also accepted. Ordinary feedback keeps its existing comment requirements.
+
+Error reports appear in Discord as a short summary with the report ID, database
+ID, URL, timestamp, error message, trace ID and Next.js digest when provided.
+Download **feedback.json** for the complete original report, including
+`error.stack`, nested `error.cause` stacks, `errorLog` and browser metadata.
+Only the message preview is shortened. Other feedback exceeding Discord's
+2,000-character content limit uses the same attachment mechanism. Mentions are
+disabled, and `wait=true` requests confirmation that Discord saved the message.
+
+The full report is stored in `feedbacks.feedback` before the webhook is called.
+Search `feedback.discord.delivery.attempt` / `.completed` logs by `reportId`;
+failed delivery logs include the database `feedbackId` and Discord's bounded
+error response body. Recover a stored report using its report reference:
+
+```sql
+SELECT id, created_at, feedback
+FROM feedbacks
+WHERE feedback LIKE '%<reportId>%'
+ORDER BY created_at;
+```
+
+Discord failures return `502` so the client can retry. Duplicate storage detection
+does not suppress another delivery attempt. Repeated submissions can therefore
+produce duplicate Discord messages; use `reportId` to recognize the same report.
+This endpoint has no background delivery worker: automatic delivery after a crash
+or an abandoned retry would require a durable Discord outbox, as used for the
+separate email flows. Stored reports remain available for manual lookup.
+
+Deploy this service update before the frontend's comment-free error-report button.
+For server errors, use `error.digest` plus timestamp/path to find the frontend's
+`web.request.error` log, then follow its trace ID if present. Browser reports cannot
+recover server stacks hidden by Next.js. Minified browser frames require source
+maps from the matching frontend build to resolve original source locations.
+
 ## contact form (landing page)
 
 `POST /api/contact-form` receives the landing page contact form and delivers it
