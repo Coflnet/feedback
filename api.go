@@ -27,9 +27,7 @@ var (
 		Help: "the times feedback was given",
 	})
 
-	// errorsCounter only tracks server-side failures (DB save, Discord
-	// delivery). Client validation failures are tracked separately by
-	// feedbackRejectedCounter so they don't page as server errors.
+	// errorsCounter tracks server-side failures only; rejections are counted separately.
 	errorsCounter = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "feedback_errors",
 		Help: "the times errors occured",
@@ -41,8 +39,7 @@ var (
 	}, []string{"reason"})
 )
 
-// structuredFeedbackTypes are feedback names whose payload is meaningful even
-// without free-text additionalInformation, so an empty comment is accepted.
+// structuredFeedbackTypes are feedback names whose payload is meaningful even without free-text additionalInformation, so an empty comment is accepted.
 var structuredFeedbackTypes = map[string]bool{
 	"badSearchResults":          true,
 	"subscription-cancel":       true,
@@ -192,7 +189,6 @@ func (h *ApiHandler) healthRequest(c *fiber.Ctx) error {
 func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
-		// parseFeedbackFromRequest already logged and counted the rejection.
 		return err
 	}
 
@@ -220,7 +216,6 @@ func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 func (h *ApiHandler) feedbackSongvoterPostRequest(c *fiber.Ctx) error {
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
-		// parseFeedbackFromRequest already logged and counted the rejection.
 		return err
 	}
 
@@ -246,7 +241,6 @@ func (h *ApiHandler) feedbackSongvoterPostRequest(c *fiber.Ctx) error {
 func (h *ApiHandler) feedbackProSkyblocPostRequest(c *fiber.Ctx) error {
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
-		// parseFeedbackFromRequest already logged and counted the rejection.
 		return err
 	}
 
@@ -269,9 +263,7 @@ func (h *ApiHandler) feedbackProSkyblocPostRequest(c *fiber.Ctx) error {
 	return nil
 }
 
-// rejectFeedback records a client validation failure: a single place that
-// counts it (feedback_rejected_total, by reason), logs it at Warn (these are
-// not server errors and must not page), and returns the HTTP 400 to send.
+// rejectFeedback counts, logs (Warn, not Error, so it doesn't page), and returns the HTTP 400 for a client validation failure.
 func rejectFeedback(reason, feedbackName string, err error, msg string) error {
 	feedbackRejectedCounter.WithLabelValues(reason).Inc()
 	slog.Warn("feedback rejected", "reason", reason, "feedbackName", feedbackName, "err", err)
