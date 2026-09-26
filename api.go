@@ -27,11 +27,27 @@ var (
 		Help: "the times feedback was given",
 	})
 
+	// errorsCounter only tracks server-side failures (DB save, Discord
+	// delivery). Client validation failures are tracked separately by
+	// feedbackRejectedCounter so they don't page as server errors.
 	errorsCounter = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "feedback_errors",
 		Help: "the times errors occured",
 	})
+
+	feedbackRejectedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "feedback_rejected_total",
+		Help: "feedback requests rejected by validation, by reason",
+	}, []string{"reason"})
 )
+
+// structuredFeedbackTypes are feedback names whose payload is meaningful even
+// without free-text additionalInformation, so an empty comment is accepted.
+var structuredFeedbackTypes = map[string]bool{
+	"badSearchResults":          true,
+	"subscription-cancel":       true,
+	"subscription-cancellation": true,
+}
 
 // openapi.yaml will be located and read at startup from either the
 // executable directory or the current working directory. This avoids
@@ -176,8 +192,7 @@ func (h *ApiHandler) healthRequest(c *fiber.Ctx) error {
 func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
-		slog.Error("there was an error when parsing feedback", "err", err)
-		errorsCounter.Inc()
+		// parseFeedbackFromRequest already logged and counted the rejection.
 		return err
 	}
 
@@ -205,8 +220,7 @@ func (h *ApiHandler) feedbackPostRequest(c *fiber.Ctx) error {
 func (h *ApiHandler) feedbackSongvoterPostRequest(c *fiber.Ctx) error {
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
-		slog.Error("there was an error when parsing feedback", "err", err)
-		errorsCounter.Inc()
+		// parseFeedbackFromRequest already logged and counted the rejection.
 		return err
 	}
 
@@ -232,8 +246,7 @@ func (h *ApiHandler) feedbackSongvoterPostRequest(c *fiber.Ctx) error {
 func (h *ApiHandler) feedbackProSkyblocPostRequest(c *fiber.Ctx) error {
 	feedback, err := parseFeedbackFromRequest(c)
 	if err != nil {
-		slog.Error("there was an error when parsing feedback", "err", err)
-		errorsCounter.Inc()
+		// parseFeedbackFromRequest already logged and counted the rejection.
 		return err
 	}
 
@@ -256,20 +269,26 @@ func (h *ApiHandler) feedbackProSkyblocPostRequest(c *fiber.Ctx) error {
 	return nil
 }
 
+// rejectFeedback records a client validation failure: a single place that
+// counts it (feedback_rejected_total, by reason), logs it at Warn (these are
+// not server errors and must not page), and returns the HTTP 400 to send.
+func rejectFeedback(reason, feedbackName string, err error, msg string) error {
+	feedbackRejectedCounter.WithLabelValues(reason).Inc()
+	slog.Warn("feedback rejected", "reason", reason, "feedbackName", feedbackName, "err", err)
+	return fiber.NewError(fiber.StatusBadRequest, msg)
+}
+
 func parseFeedbackFromRequest(c *fiber.Ctx) (*Feedback, error) {
 	c.Accepts("application/json")
 
 	var feedback FeedbackRequest
 	if err := c.BodyParser(&feedback); err != nil {
-		slog.Error("could not parse request")
-		errorsCounter.Inc()
-
-		return nil, err
+		return nil, rejectFeedback("body_parse", feedback.FeedbackName, err, "could not parse request body")
 	}
 
 	var data map[string]interface{}
 	if err := json.Unmarshal([]byte(feedback.Feedback), &data); err != nil || data == nil {
-		return nil, fiber.NewError(fiber.StatusBadRequest, "feedback must contain a JSON object")
+		return nil, rejectFeedback("feedback_not_json_object", feedback.FeedbackName, err, "feedback must contain a JSON object")
 	}
 	feedback.Timestamp = time.Now()
 	if feedback.FeedbackName == "" {
@@ -281,10 +300,10 @@ func parseFeedbackFromRequest(c *fiber.Ctx) (*Feedback, error) {
 		errorDetails, _ := data["error"].(map[string]interface{})
 		message, _ := errorDetails["message"].(string)
 		if strings.TrimSpace(reportID) == "" || strings.TrimSpace(message) == "" {
-			return nil, fiber.NewError(fiber.StatusBadRequest, "web-error requires reportId and error.message")
+			return nil, rejectFeedback("web_error_missing_fields", feedback.FeedbackName, nil, "web-error requires reportId and error.message")
 		}
-	} else if content == "" {
-		return nil, &AdditionalInformationIsEmptyError{}
+	} else if content == "" && !structuredFeedbackTypes[feedback.FeedbackName] {
+		return nil, rejectFeedback("additional_information_empty", feedback.FeedbackName, nil, "additionalInformation is required")
 	}
 
 	return &Feedback{
@@ -436,10 +455,4 @@ func sendMessageToDiscordBot(feedback *Feedback) error {
 	buf.WriteString("\n")
 
 	return deliverDiscordFeedback(feedback, parsed, buf.String())
-}
-
-type AdditionalInformationIsEmptyError struct{}
-
-func (e *AdditionalInformationIsEmptyError) Error() string {
-	return "additionalInformation is empty, that is classified as an error by now"
 }
